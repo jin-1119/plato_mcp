@@ -18,6 +18,7 @@ EXPECTED_TOOLS = {
     "get_qna_detail",
     # Phase 3 (write)
     "submit_assignment",
+    "post_qna_question",
 }
 
 

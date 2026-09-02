@@ -52,6 +52,24 @@ Run against a real PLATO account with at least one enrolled course.
       (`mod/assign/submission/onlinetext/locallib.php`), not against a live response. Re-run once a
       real assignment exists -- ideally a low-stakes test one, not a real graded submission.
 
+## Phase 3 checklist (issues #26-#27)
+
+- [x] `_fetch_write_form_tokens` (GET only) — verified live against the real Q&A write form:
+      sesskey and both per-load draft-area ids extracted correctly
+- [x] `post_qna_question` (dry_run path) — verified live: resolves the real Q&A board id (37083)
+      and builds a correct preview, no request sent
+- [ ] `post_new_thread` / `post_qna_question` (dry_run=False, real POST) — **deliberately not
+      exercised live.** Unlike every read-only tool so far, this creates a real, visible post on
+      a real course Q&A board -- doing that needs the user's explicit go-ahead (which was asked
+      and deferred for now), not routine automated verification. When this is picked up: post one
+      low-stakes test question, confirm it appears via `list_qna`, then decide whether/how to
+      remove it (no delete tool exists yet).
+- [ ] `reply_to_qna` — **not implemented at all.** The reply/thread POST mechanism (does it reuse
+      `write.php` with `bwid` set to the parent post id? a different endpoint?) has never been
+      observed -- no real Q&A thread exists anywhere on this account to reply to. See
+      `docs/ubboard_structure.md` section 6. Needs a real thread to exist before this can be built
+      on anything other than a guess.
+
 ## Known gap
 
 `list_assignments`/`get_assignment_detail`'s "assignment exists and has a submission" path has never
