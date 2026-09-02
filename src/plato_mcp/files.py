@@ -52,9 +52,22 @@ def download_course_file_for(
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     downloaded = 0
-    with requests.get(download_url, stream=True, timeout=30) as resp:
+    # This one has to stay a GET with the token in the URL -- that's how
+    # Moodle's pluginfile.php authenticates a direct file download, there's
+    # no POST-body alternative. So unlike auth.py/moodle_client.py (which
+    # avoid this by switching to POST), we can't stop the token from being
+    # in the URL -- only catch and sanitize what `requests` does with it on
+    # failure, since HTTPError/RequestException otherwise embed the full
+    # URL (token included) verbatim in their message.
+    try:
+        resp = requests.get(download_url, stream=True, timeout=30)
         resp.raise_for_status()
+    except requests.RequestException as e:
+        raise PlatoMCPError(
+            f"course file download request failed (network or HTTP error): {type(e).__name__}"
+        ) from None
 
+    with resp:
         content_length = resp.headers.get("content-length")
         if content_length and int(content_length) > max_bytes:
             raise DownloadRejectedError(
