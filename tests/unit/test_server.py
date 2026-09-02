@@ -14,6 +14,8 @@ EXPECTED_TOOLS = {
     # Phase 2 (ubboard)
     "list_notices",
     "get_notice_detail",
+    "list_qna",
+    "get_qna_detail",
 }
 
 

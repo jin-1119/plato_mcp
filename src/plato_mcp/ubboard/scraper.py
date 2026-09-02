@@ -70,3 +70,27 @@ def get_notice_detail_for(
     board_id = find_board_id(client, course_id, "notice")
     html = fetch_detail_html(session, board_id, post_id)
     return parse_detail_page(html, board_id, post_id)
+
+
+def list_qna_for(
+    client: MoodleClient, session: PlatoSession, course_id: int
+) -> list[UbboardPostSummary]:
+    board_id = find_board_id(client, course_id, "qna")
+    html = fetch_list_html(session, board_id)
+    return parse_list_page(html, board_id)
+
+
+def get_qna_detail_for(
+    client: MoodleClient, session: PlatoSession, course_id: int, post_id: int
+) -> UbboardPostDetail:
+    """Get one Q&A question's title/writer/date/content.
+
+    Does NOT include replies -- no real Q&A thread has ever been observed on
+    any enrolled course (checked live, see docs/ubboard_structure.md section
+    5), so there is no verified reply markup to parse. `content_html` is
+    just the original question's body, same as a Notices post. Revisit once
+    a real Q&A thread with replies exists.
+    """
+    board_id = find_board_id(client, course_id, "qna")
+    html = fetch_detail_html(session, board_id, post_id)
+    return parse_detail_page(html, board_id, post_id)
