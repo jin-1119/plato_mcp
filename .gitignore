@@ -1,0 +1,9 @@
+.env
+*.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.session
+*.token
+downloaded_*
