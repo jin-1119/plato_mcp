@@ -2,7 +2,8 @@ import pytest
 
 from plato_mcp.server import mcp
 
-EXPECTED_PHASE1_TOOLS = {
+EXPECTED_TOOLS = {
+    # Phase 1 (official API)
     "list_courses",
     "get_course_contents",
     "list_assignments",
@@ -10,11 +11,14 @@ EXPECTED_PHASE1_TOOLS = {
     "get_grades",
     "list_calendar_events",
     "get_unread_messages",
+    # Phase 2 (ubboard)
+    "list_notices",
+    "get_notice_detail",
 }
 
 
 @pytest.mark.asyncio
-async def test_server_boots_with_phase1_tools_registered():
+async def test_server_boots_with_expected_tools_registered():
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
-    assert names == EXPECTED_PHASE1_TOOLS
+    assert names == EXPECTED_TOOLS

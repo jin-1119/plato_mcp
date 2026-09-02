@@ -1,4 +1,4 @@
-from . import assignments, calendar, courses, grades, messages
+from . import assignments, calendar, courses, grades, messages, notices_qna
 
 
 def register_all(mcp) -> None:
@@ -7,3 +7,4 @@ def register_all(mcp) -> None:
     grades.register(mcp)
     calendar.register(mcp)
     messages.register(mcp)
+    notices_qna.register(mcp)
