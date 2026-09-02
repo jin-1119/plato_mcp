@@ -16,6 +16,8 @@ EXPECTED_TOOLS = {
     "get_notice_detail",
     "list_qna",
     "get_qna_detail",
+    # Phase 3 (write)
+    "submit_assignment",
 }
 
 

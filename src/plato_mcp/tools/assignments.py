@@ -1,4 +1,4 @@
-"""Tools: list_assignments, get_assignment_detail (issue #14)."""
+"""Tools: list_assignments, get_assignment_detail (issue #14), submit_assignment (issue #25)."""
 
 from datetime import UTC, datetime
 
@@ -14,6 +14,15 @@ from plato_mcp.models import (
     SubmissionStatus,
 )
 from plato_mcp.moodle_client import MoodleClient
+from plato_mcp.write_tools import (
+    WRITE_TOOL_ANNOTATIONS,
+    WriteResult,
+    executed_result,
+    preview_result,
+)
+
+# Moodle's FORMAT_PLAIN -- avoids any HTML-escaping ambiguity for a plain text submission.
+FORMAT_PLAIN = 2
 
 
 def list_assignments_for(client: MoodleClient, course_ids: list[int]) -> list[AssignmentSummary]:
@@ -77,6 +86,46 @@ def get_assignment_detail_for(
     )
 
 
+def submit_assignment_for(
+    client: MoodleClient, course_id: int, assignment_id: int, text: str, dry_run: bool = True
+) -> WriteResult:
+    """Submit plain-text content for an assignment (see docs/write_confirmation_pattern.md).
+
+    File attachments are NOT supported here -- Moodle's file-submission path needs a
+    separate core_files_upload (multipart) call to get a draft-area itemid before
+    mod_assign_save_submission can reference it, and there is no real assignment on
+    the test account to verify that flow against. Text-only (assignsubmission_onlinetext)
+    is what's implemented and documented; file attachments are a follow-up.
+    """
+    assignments = list_assignments_for(client, [course_id])
+    match = next((a for a in assignments if a.id == assignment_id), None)
+    if match is None:
+        raise ValueError(f"Assignment {assignment_id} not found in course {course_id}")
+
+    preview = {
+        "course_id": course_id,
+        "assignment_id": assignment_id,
+        "assignment_name": match.name,
+        "due_date": match.duedate.isoformat() if match.duedate else None,
+        "cutoff_date": match.cutoffdate.isoformat() if match.cutoffdate else None,
+        "text": text,
+    }
+
+    if dry_run:
+        return preview_result(preview, f"Submission for '{match.name}'")
+
+    client.call(
+        "mod_assign_save_submission",
+        assignmentid=assignment_id,
+        **{
+            "plugindata[onlinetext_editor][text]": text,
+            "plugindata[onlinetext_editor][format]": FORMAT_PLAIN,
+            "plugindata[onlinetext_editor][itemid]": 0,
+        },
+    )
+    return executed_result(preview, f"Submission for '{match.name}'")
+
+
 def register(mcp) -> None:
     @mcp.tool()
     async def list_assignments(course_ids: list[int], ctx: Context) -> list[AssignmentSummary]:
@@ -89,3 +138,15 @@ def register(mcp) -> None:
     ) -> AssignmentDetail:
         """Get one assignment's details and this account's submission status."""
         return get_assignment_detail_for(get_client(ctx), course_id, assignment_id)
+
+    @mcp.tool(annotations=WRITE_TOOL_ANNOTATIONS)
+    async def submit_assignment(
+        course_id: int, assignment_id: int, text: str, ctx: Context, dry_run: bool = True
+    ) -> WriteResult:
+        """Submit plain-text content for an assignment. IRREVERSIBLE once dry_run=False.
+
+        Call with dry_run=True (default) first, show the preview to the user, and
+        only call again with dry_run=False after they explicitly confirm. File
+        attachments are not supported -- text only.
+        """
+        return submit_assignment_for(get_client(ctx), course_id, assignment_id, text, dry_run)

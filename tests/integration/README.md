@@ -41,6 +41,17 @@ Run against a real PLATO account with at least one enrolled course.
       with at least one reply) exists, and check `docs/ubboard_structure.md` section 5 for what's still
       unknown.
 
+## Phase 3 checklist (issue #25)
+
+- [x] `submit_assignment` (dry_run path) — sanity-checked against a real course: correctly resolves
+      real assignment metadata via `list_assignments_for` and raises `ValueError` for a nonexistent
+      assignment id
+- [ ] `submit_assignment` (dry_run=False, real submission) — **never exercised.** No course on this
+      account has ever had a real assignment to submit to. `mod_assign_save_submission` and its
+      `plugindata[onlinetext_editor][...]` field names are verified against Moodle 4.5 source
+      (`mod/assign/submission/onlinetext/locallib.php`), not against a live response. Re-run once a
+      real assignment exists -- ideally a low-stakes test one, not a real graded submission.
+
 ## Known gap
 
 `list_assignments`/`get_assignment_detail`'s "assignment exists and has a submission" path has never
