@@ -17,9 +17,12 @@ from plato_mcp.moodle_client import MoodleClient
 from plato_mcp.write_tools import (
     WRITE_TOOL_ANNOTATIONS,
     WriteResult,
+    default_preview_tracker,
     executed_result,
     preview_result,
 )
+
+ACTION_SUBMIT_ASSIGNMENT = "submit_assignment"
 
 # Moodle's FORMAT_PLAIN -- avoids any HTML-escaping ambiguity for a plain text submission.
 FORMAT_PLAIN = 2
@@ -96,24 +99,33 @@ def submit_assignment_for(
     mod_assign_save_submission can reference it, and there is no real assignment on
     the test account to verify that flow against. Text-only (assignsubmission_onlinetext)
     is what's implemented and documented; file attachments are a follow-up.
+
+    dry_run=False is only allowed after a matching dry_run=True preview (same
+    session, course_id, assignment_id, and text) -- see write_tools.PreviewTracker
+    (issue #37). This is enforced server-side, not just a docstring convention.
     """
     assignments = list_assignments_for(client, [course_id])
     match = next((a for a in assignments if a.id == assignment_id), None)
     if match is None:
         raise ValueError(f"Assignment {assignment_id} not found in course {course_id}")
 
+    action_params = {"course_id": course_id, "assignment_id": assignment_id, "text": text}
     preview = {
-        "course_id": course_id,
-        "assignment_id": assignment_id,
+        **action_params,
         "assignment_name": match.name,
         "due_date": match.duedate.isoformat() if match.duedate else None,
         "cutoff_date": match.cutoffdate.isoformat() if match.cutoffdate else None,
-        "text": text,
     }
 
     if dry_run:
+        default_preview_tracker.record_preview(
+            client.session_key, ACTION_SUBMIT_ASSIGNMENT, action_params
+        )
         return preview_result(preview, f"Submission for '{match.name}'")
 
+    default_preview_tracker.require_previewed(
+        client.session_key, ACTION_SUBMIT_ASSIGNMENT, action_params
+    )
     client.call(
         "mod_assign_save_submission",
         assignmentid=assignment_id,

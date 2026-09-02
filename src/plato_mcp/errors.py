@@ -29,3 +29,9 @@ class ScrapeError(PlatoMCPError):
 
 class RateLimitError(PlatoMCPError):
     """Outbound request throttled to protect PLATO from abuse."""
+
+
+class WriteConfirmationError(PlatoMCPError):
+    """dry_run=False was called without a matching, still-fresh dry_run=True
+    preview for the same action (see docs/write_confirmation_pattern.md and
+    the issue #37 abuse-prevention review)."""
