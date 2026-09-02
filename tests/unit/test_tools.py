@@ -11,7 +11,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from plato_mcp.errors import MoodleAPIError
-from plato_mcp.tools.assignments import get_assignment_detail_for, list_assignments_for
+from plato_mcp.tools.assignments import (
+    get_assignment_detail_for,
+    list_assignments_for,
+    submit_assignment_for,
+)
 from plato_mcp.tools.calendar import list_calendar_events_for
 from plato_mcp.tools.courses import get_course_contents_for, list_courses_for
 from plato_mcp.tools.grades import get_grades_for
@@ -294,6 +298,51 @@ def test_get_assignment_detail_for_unknown_id_raises(mock_client):
     mock_client.call.return_value = {"courses": [{"id": 6253, "assignments": []}]}
     with pytest.raises(ValueError):
         get_assignment_detail_for(mock_client, course_id=6253, assignment_id=999)
+
+
+def test_submit_assignment_for_dry_run_does_not_call_save_submission(mock_client):
+    mock_client.call.return_value = {
+        "courses": [{"id": 6253, "assignments": [{"id": 1, "name": "HW1"}]}]
+    }
+
+    result = submit_assignment_for(mock_client, course_id=6253, assignment_id=1, text="my answer")
+
+    assert result.dry_run is True
+    assert result.executed is False
+    assert result.preview["text"] == "my answer"
+    assert result.preview["assignment_name"] == "HW1"
+    mock_client.call.assert_called_once_with("mod_assign_get_assignments", courseids=[6253])
+
+
+def test_submit_assignment_for_real_run_calls_save_submission(mock_client):
+    def fake_call(fn, **kw):
+        if fn == "mod_assign_get_assignments":
+            return {"courses": [{"id": 6253, "assignments": [{"id": 1, "name": "HW1"}]}]}
+        if fn == "mod_assign_save_submission":
+            return []
+        raise AssertionError(f"unexpected call: {fn}")
+
+    mock_client.call.side_effect = fake_call
+
+    result = submit_assignment_for(
+        mock_client, course_id=6253, assignment_id=1, text="my answer", dry_run=False
+    )
+
+    assert result.dry_run is False
+    assert result.executed is True
+
+    save_call = next(
+        c for c in mock_client.call.call_args_list if c.args[0] == "mod_assign_save_submission"
+    )
+    assert save_call.kwargs["assignmentid"] == 1
+    assert save_call.kwargs["plugindata[onlinetext_editor][text]"] == "my answer"
+    assert save_call.kwargs["plugindata[onlinetext_editor][format]"] == 2
+
+
+def test_submit_assignment_for_unknown_id_raises(mock_client):
+    mock_client.call.return_value = {"courses": [{"id": 6253, "assignments": []}]}
+    with pytest.raises(ValueError):
+        submit_assignment_for(mock_client, course_id=6253, assignment_id=999, text="x")
 
 
 def test_get_grades_for_available(mock_client):
