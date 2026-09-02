@@ -130,6 +130,43 @@ def test_list_assignments_for_flattens_courses(mock_client):
     assert result[0].duedate == datetime(2026, 10, 1, tzinfo=UTC)
 
 
+def test_list_assignments_for_full_schema(mock_client):
+    due = datetime(2026, 10, 1, tzinfo=UTC)
+    cutoff = datetime(2026, 10, 3, tzinfo=UTC)
+    mock_client.call.return_value = {
+        "courses": [
+            {
+                "id": 6253,
+                "assignments": [
+                    {
+                        "id": 1,
+                        "cmid": 999,
+                        "name": "HW1",
+                        "duedate": _epoch(due),
+                        "cutoffdate": _epoch(cutoff),
+                        "intro": "<p>Do the thing</p>",
+                        "introattachments": [
+                            {"filename": "spec.pdf", "fileurl": "https://x/spec.pdf"}
+                        ],
+                        "teamsubmission": 1,
+                        "requireallteammemberssubmit": 0,
+                        "maxattempts": -1,
+                    },
+                ],
+            }
+        ],
+    }
+    result = list_assignments_for(mock_client, [6253])
+    a = result[0]
+    assert a.cmid == 999
+    assert a.cutoffdate == cutoff
+    assert a.intro == "<p>Do the thing</p>"
+    assert a.introattachments[0].filename == "spec.pdf"
+    assert a.teamsubmission is True
+    assert a.requireallteammemberssubmit is False
+    assert a.maxattempts == -1
+
+
 def test_get_assignment_detail_for_not_submitted(mock_client):
     due = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -177,6 +214,80 @@ def test_get_assignment_detail_for_late_submission(mock_client):
     detail = get_assignment_detail_for(mock_client, course_id=6253, assignment_id=1)
     assert detail.submission.submitted is True
     assert detail.submission.late is True
+
+
+def test_get_assignment_detail_for_full_feedback_and_history(mock_client):
+    due = datetime(2026, 10, 1, tzinfo=UTC)
+    graded_at = datetime(2026, 10, 5, tzinfo=UTC)
+
+    def fake_call(fn, **kw):
+        if fn == "mod_assign_get_assignments":
+            return {
+                "courses": [
+                    {"id": 6253, "assignments": [{"id": 1, "name": "HW1", "duedate": _epoch(due)}]}
+                ]
+            }
+        if fn == "core_webservice_get_site_info":
+            return {"userid": 448520}
+        if fn == "mod_assign_get_submission_status":
+            return {
+                "lastattempt": {
+                    "submission": {"status": "submitted", "timemodified": _epoch(due)},
+                    "cansubmit": False,
+                    "locked": True,
+                    "extensionduedate": _epoch(due + timedelta(days=2)),
+                    "gradingstatus": "graded",
+                },
+                "feedback": {
+                    "grade": {"grade": "85.00000", "gradefordisplay": "85 / 100"},
+                    "gradefordisplay": "85 / 100",
+                    "gradeddate": _epoch(graded_at),
+                    "plugins": [
+                        {
+                            "type": "comments",
+                            "name": "Feedback comments",
+                            "editorfields": [
+                                {"name": "comments", "text": "잘 했습니다", "format": 1}
+                            ],
+                        }
+                    ],
+                },
+                "previousattempts": [
+                    {
+                        "attemptnumber": 0,
+                        "submission": {"status": "submitted", "timemodified": _epoch(due)},
+                        "grade": {"grade": "70.00000"},
+                    }
+                ],
+                "assignmentdata": {
+                    "activity": "<p>extra info</p>",
+                    "attachments": {
+                        "intro": [{"filename": "spec.pdf", "fileurl": "https://x/spec.pdf"}],
+                        "activity": [],
+                    },
+                },
+            }
+        raise AssertionError(f"unexpected call: {fn}")
+
+    mock_client.call.side_effect = fake_call
+    detail = get_assignment_detail_for(mock_client, course_id=6253, assignment_id=1)
+
+    assert detail.submission.cansubmit is False
+    assert detail.submission.locked is True
+    assert detail.submission.extensionduedate == due + timedelta(days=2)
+    assert detail.submission.gradingstatus == "graded"
+
+    assert detail.feedback.grade.grade == "85.00000"
+    assert detail.feedback.gradefordisplay == "85 / 100"
+    assert detail.feedback.gradeddate == graded_at
+    assert detail.feedback.plugins[0].editorfields[0].text == "잘 했습니다"
+
+    assert len(detail.previousattempts) == 1
+    assert detail.previousattempts[0].grade.grade == "70.00000"
+
+    assert detail.extra.activity == "<p>extra info</p>"
+    assert detail.extra.attachments_intro[0].filename == "spec.pdf"
+    assert detail.extra.attachments_activity == []
 
 
 def test_get_assignment_detail_for_unknown_id_raises(mock_client):

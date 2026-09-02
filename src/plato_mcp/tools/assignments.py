@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 from mcp.server.mcpserver import Context
 
 from plato_mcp.context import get_client, get_userid
-from plato_mcp.models import AssignmentDetail, AssignmentSummary, SubmissionStatus
+from plato_mcp.models import (
+    AssignmentDetail,
+    AssignmentExtraData,
+    AssignmentSummary,
+    PreviousAttempt,
+    SubmissionFeedback,
+    SubmissionStatus,
+)
 from plato_mcp.moodle_client import MoodleClient
 
 
@@ -28,7 +35,9 @@ def get_assignment_detail_for(
 
     userid = get_userid(client)
     status = client.call("mod_assign_get_submission_status", assignid=assignment_id, userid=userid)
-    submission_raw = (status.get("lastattempt") or {}).get("submission")
+
+    lastattempt = status.get("lastattempt") or {}
+    submission_raw = lastattempt.get("submission")
 
     submission = None
     if submission_raw:
@@ -42,9 +51,30 @@ def get_assignment_detail_for(
             submitted=submission_raw.get("status") == "submitted",
             status=submission_raw.get("status"),
             late=late,
+            timemodified=timemodified,
+            cansubmit=lastattempt.get("cansubmit"),
+            locked=lastattempt.get("locked"),
+            extensionduedate=lastattempt.get("extensionduedate"),
+            gradingstatus=lastattempt.get("gradingstatus"),
         )
 
-    return AssignmentDetail(assignment=match, submission=submission)
+    feedback_raw = status.get("feedback")
+    feedback = SubmissionFeedback(**feedback_raw) if feedback_raw else None
+
+    previousattempts = [
+        PreviousAttempt(**attempt) for attempt in (status.get("previousattempts") or [])
+    ]
+
+    assignmentdata_raw = status.get("assignmentdata")
+    extra = AssignmentExtraData(**assignmentdata_raw) if assignmentdata_raw else None
+
+    return AssignmentDetail(
+        assignment=match,
+        submission=submission,
+        feedback=feedback,
+        previousattempts=previousattempts,
+        extra=extra,
+    )
 
 
 def register(mcp) -> None:

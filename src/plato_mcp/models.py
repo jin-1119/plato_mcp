@@ -92,18 +92,81 @@ class CourseSection(BaseModel):
 
 
 class AssignmentSummary(BaseModel):
+    """Schema verified against Moodle 4.5's mod_assign/externallib.php source
+    (PLATO runs 4.5.13) -- NOT yet verified against a live response, since no
+    course in the test account has a real assignment. Re-check field names
+    against a real payload once one exists (see tests/integration/README.md).
+    """
+
     model_config = ConfigDict(extra="ignore")
 
     id: int
+    cmid: int | None = None
     name: str
     courseid: int | None = None
     duedate: datetime | None = None
     allowsubmissionsfromdate: datetime | None = None
+    cutoffdate: datetime | None = Field(
+        default=None, description="Hard deadline; submissions after this need an extension."
+    )
+    gradingduedate: datetime | None = None
+    intro: str | None = Field(default=None, description="Assignment instructions (HTML).")
+    introformat: int | None = None
+    introfiles: list[FileEntry] = Field(default_factory=list)
+    introattachments: list[FileEntry] = Field(default_factory=list)
+    activity: str | None = Field(
+        default=None, description="Some assignment types carry a separate 'activity' description."
+    )
+    activityformat: int | None = None
+    activityattachments: list[FileEntry] = Field(default_factory=list)
+    maxattempts: int | None = None
+    attemptreopenmethod: str | None = None
+    teamsubmission: bool | None = None
+    requireallteammemberssubmit: bool | None = None
+    teamsubmissiongroupingid: int | None = None
 
-    @field_validator("duedate", "allowsubmissionsfromdate", mode="before")
+    @field_validator(
+        "duedate", "allowsubmissionsfromdate", "cutoffdate", "gradingduedate", mode="before"
+    )
     @classmethod
     def _convert_epoch(cls, v: int | None) -> datetime | None:
         return _epoch_to_datetime(v)
+
+    @field_validator("teamsubmission", "requireallteammemberssubmit", mode="before")
+    @classmethod
+    def _convert_int_bool(cls, v: int | None) -> bool | None:
+        return None if v is None else bool(v)
+
+
+class PluginEditorField(BaseModel):
+    """One text field of a submission/feedback plugin -- e.g. the actual
+    written comment text for the 'comments' feedback plugin."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    description: str | None = None
+    text: str | None = None
+    format: int | None = None
+
+
+class PluginFileArea(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    area: str
+    files: list[FileEntry] = Field(default_factory=list)
+
+
+class AssignmentPlugin(BaseModel):
+    """A submission or feedback plugin (e.g. 'file', 'onlinetext', 'comments')
+    and the actual content it holds for one submission/grade."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: str
+    name: str
+    fileareas: list[PluginFileArea] = Field(default_factory=list)
+    editorfields: list[PluginEditorField] = Field(default_factory=list)
 
 
 class SubmissionStatus(BaseModel):
@@ -112,6 +175,95 @@ class SubmissionStatus(BaseModel):
     submitted: bool
     status: str | None = None
     late: bool = False
+    timemodified: datetime | None = None
+    cansubmit: bool | None = None
+    locked: bool | None = None
+    extensionduedate: datetime | None = Field(
+        default=None, description="Individual extension granted to this student, if any."
+    )
+    gradingstatus: str | None = None
+
+    @field_validator("timemodified", "extensionduedate", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
+
+
+class GradeInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    grade: str | None = Field(default=None, description="Raw grade value (Moodle returns as text).")
+    gradefordisplay: str | None = None
+    timemodified: datetime | None = None
+    grader: int | None = None
+
+    @field_validator("timemodified", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
+
+
+class SubmissionFeedback(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    grade: GradeInfo | None = None
+    gradefordisplay: str | None = None
+    gradeddate: datetime | None = None
+    plugins: list[AssignmentPlugin] = Field(
+        default_factory=list, description="Includes the instructor's written feedback comments."
+    )
+
+    @field_validator("gradeddate", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
+
+
+class SubmissionInfo(BaseModel):
+    """Lightweight submission snapshot used inside previousattempts (as
+    opposed to SubmissionStatus, which is this account's *current* status)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: str | None = None
+    timemodified: datetime | None = None
+
+    @field_validator("timemodified", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
+
+
+class PreviousAttempt(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    attemptnumber: int
+    submission: SubmissionInfo | None = None
+    grade: GradeInfo | None = None
+    feedbackplugins: list[AssignmentPlugin] = Field(default_factory=list)
+
+
+class AssignmentExtraData(BaseModel):
+    """Maps from Moodle's `assignmentdata` (attachments nested under
+    `attachments.intro`/`attachments.activity`) to a flat shape."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    activity: str | None = None
+    attachments_intro: list[FileEntry] = Field(default_factory=list)
+    attachments_activity: list[FileEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_attachments(cls, data):
+        if isinstance(data, dict):
+            attachments = data.get("attachments") or {}
+            data = {
+                **data,
+                "attachments_intro": attachments.get("intro", []),
+                "attachments_activity": attachments.get("activity", []),
+            }
+        return data
 
 
 class AssignmentDetail(BaseModel):
@@ -119,6 +271,9 @@ class AssignmentDetail(BaseModel):
 
     assignment: AssignmentSummary
     submission: SubmissionStatus | None = None
+    feedback: SubmissionFeedback | None = None
+    previousattempts: list[PreviousAttempt] = Field(default_factory=list)
+    extra: AssignmentExtraData | None = None
 
 
 class GradeItem(BaseModel):

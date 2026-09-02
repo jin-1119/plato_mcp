@@ -32,3 +32,13 @@ Run against a real PLATO account with at least one enrolled course.
 been exercised against a live server, because no course in the test account currently has an assignment
 posted. Re-run this checklist once a real assignment appears, or before Phase 3 (issue #17, submit_assignment)
 starts -- that work will need a real assignment to test against anyway.
+
+`AssignmentSummary`/`SubmissionStatus`/`SubmissionFeedback`/`PreviousAttempt`/`AssignmentExtraData` were
+expanded (cmid, cutoffdate, gradingduedate, intro/introattachments, activity/activityattachments,
+maxattempts, attemptreopenmethod, teamsubmission, cansubmit, locked, extensionduedate, gradingstatus,
+feedback.grade/plugins, previousattempts, assignmentdata) based on reading Moodle 4.5's
+`mod/assign/externallib.php` source directly (MOODLE_405_STABLE, matching PLATO's actual 4.5.13 release) --
+field names are trustworthy, but none of it has been checked against a real PLATO response yet. When a
+real assignment shows up, re-run `get_assignment_detail` against it and confirm every new field actually
+appears with the expected shape (especially `feedback.plugins[].editorfields[].text`, which is where an
+instructor's written feedback comment should show up).
