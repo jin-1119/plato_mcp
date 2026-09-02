@@ -62,6 +62,19 @@ class MoodleClient:
         self._rest_endpoint = rest_endpoint
         self._timeout = timeout
 
+    def get_wstoken(self) -> str:
+        """Ensure a logged-in session and return its wstoken.
+
+        Used by files.py to build an authenticated pluginfile.php download
+        URL (?token={wstoken}) -- that's not a webservice function call, so
+        it doesn't go through call()/_raw_call(), but it needs the same
+        cached-or-login session.
+        """
+        session = self._session_manager.get_or_login(
+            self._session_key, self._username, self._password
+        )
+        return session.wstoken
+
     def call(self, wsfunction: str, **params) -> dict | list:
         session = self._session_manager.get_or_login(
             self._session_key, self._username, self._password
