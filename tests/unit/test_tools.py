@@ -74,8 +74,16 @@ def test_get_course_contents_for(mock_client):
                     "name": "Syllabus",
                     "modname": "resource",
                     "url": "https://plato.pusan.ac.kr/mod/resource/view.php?id=100",
+                    "completiondata": {"isoverallcomplete": True},
                     "contents": [
-                        {"filename": "syllabus.pdf", "fileurl": "https://x/f.pdf", "filesize": 1000}
+                        {
+                            "filename": "syllabus.pdf",
+                            "fileurl": "https://x/f.pdf",
+                            "filesize": 1000,
+                            "mimetype": "application/pdf",
+                            "author": "안영빈",
+                            "timemodified": _epoch(datetime(2026, 9, 1, tzinfo=UTC)),
+                        }
                     ],
                 }
             ],
@@ -83,8 +91,25 @@ def test_get_course_contents_for(mock_client):
     ]
     result = get_course_contents_for(mock_client, course_id=6253)
     assert len(result) == 1
-    assert result[0].modules[0].contents[0].filename == "syllabus.pdf"
-    assert result[0].modules[0].contents[0].needs_token is True
+    file_entry = result[0].modules[0].contents[0]
+    assert file_entry.filename == "syllabus.pdf"
+    assert file_entry.needs_token is True
+    assert file_entry.mimetype == "application/pdf"
+    assert file_entry.author == "안영빈"
+    assert file_entry.timemodified == datetime(2026, 9, 1, tzinfo=UTC)
+    assert result[0].modules[0].completed is True
+
+
+def test_get_course_contents_for_completed_missing_when_no_completiondata(mock_client):
+    mock_client.call.return_value = [
+        {
+            "id": 1,
+            "name": "Week 1",
+            "modules": [{"id": 100, "name": "Syllabus", "modname": "resource", "contents": []}],
+        }
+    ]
+    result = get_course_contents_for(mock_client, course_id=6253)
+    assert result[0].modules[0].completed is None
 
 
 def test_list_assignments_for_flattens_courses(mock_client):
@@ -164,13 +189,23 @@ def test_get_grades_for_available(mock_client):
     def fake_call(fn, **kw):
         if fn == "core_webservice_get_site_info":
             return {"userid": 448520}
-        item = {"id": 1, "itemname": "출석", "itemtype": "manual", "graderaw": 10.0}
+        item = {
+            "id": 1,
+            "itemname": "출석",
+            "itemtype": "manual",
+            "graderaw": 10.0,
+            "grademin": 0.0,
+            "grademax": 100.0,
+            "feedback": "잘했습니다",
+        }
         return {"usergrades": [{"gradeitems": [item]}]}
 
     mock_client.call.side_effect = fake_call
     result = get_grades_for(mock_client, course_id=6253)
     assert result.available is True
     assert result.gradeitems[0].graderaw == 10.0
+    assert result.gradeitems[0].grademax == 100.0
+    assert result.gradeitems[0].feedback == "잘했습니다"
 
 
 def test_get_grades_for_no_permission(mock_client):
@@ -218,12 +253,13 @@ def test_list_calendar_events_excludes_events_beyond_window(mock_client):
     beyond = _epoch(now + timedelta(days=20))
     mock_client.call.return_value = {
         "events": [
-            {"id": 1, "name": "Within", "timestart": within},
+            {"id": 1, "name": "Within", "timestart": within, "description": "<p>hi</p>"},
             {"id": 2, "name": "Beyond", "timestart": beyond},
         ]
     }
     result = list_calendar_events_for(mock_client, days_ahead=14)
     assert [e.name for e in result] == ["Within"]
+    assert result[0].description == "<p>hi</p>"
 
 
 def test_get_unread_messages_for(mock_client):
@@ -231,9 +267,21 @@ def test_get_unread_messages_for(mock_client):
         if fn == "core_webservice_get_site_info":
             return {"userid": 448520}
         assert kw["read"] == 0
-        return {"messages": [{"id": 1, "useridfrom": -10, "subject": "새 로그인"}]}
+        return {
+            "messages": [
+                {
+                    "id": 1,
+                    "useridfrom": -10,
+                    "userfromfullname": "PLATO",
+                    "subject": "새 로그인",
+                    "eventtype": "newlogin",
+                }
+            ]
+        }
 
     mock_client.call.side_effect = fake_call
     result = get_unread_messages_for(mock_client)
+    assert result[0].userfromfullname == "PLATO"
+    assert result[0].eventtype == "newlogin"
     assert len(result) == 1
     assert result[0].subject == "새 로그인"

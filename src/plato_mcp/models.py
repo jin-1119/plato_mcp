@@ -7,7 +7,7 @@ tool output focused instead of dumping the raw API response at the LLM.
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _epoch_to_datetime(value: int | None) -> datetime | None:
@@ -43,10 +43,20 @@ class FileEntry(BaseModel):
     fileurl: str
     filesize: int | None = None
     type: str | None = None
+    mimetype: str | None = None
+    author: str | None = Field(
+        default=None, description="Who uploaded this file (often the instructor)."
+    )
+    timemodified: datetime | None = None
     needs_token: bool = Field(
         default=True,
         description="Append ?token={wstoken} to fileurl before downloading (see issue #20).",
     )
+
+    @field_validator("timemodified", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
 
 
 class CourseModule(BaseModel):
@@ -56,7 +66,21 @@ class CourseModule(BaseModel):
     name: str
     modname: str
     url: str | None = None
+    completed: bool | None = Field(
+        default=None, description="Whether this account has marked/viewed this module complete."
+    )
     contents: list[FileEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_completed(cls, data):
+        # Moodle nests completion under completiondata.isoverallcomplete rather than
+        # a flat field -- pull it up so callers don't need to know that shape.
+        if isinstance(data, dict) and "completed" not in data:
+            completiondata = data.get("completiondata")
+            if isinstance(completiondata, dict):
+                data = {**data, "completed": completiondata.get("isoverallcomplete")}
+        return data
 
 
 class CourseSection(BaseModel):
@@ -105,6 +129,9 @@ class GradeItem(BaseModel):
     itemtype: str
     graderaw: float | None = None
     gradeformatted: str | None = None
+    grademin: float | None = None
+    grademax: float | None = None
+    feedback: str | None = None
 
 
 class GradesResult(BaseModel):
@@ -119,6 +146,7 @@ class CalendarEvent(BaseModel):
 
     id: int
     name: str
+    description: str | None = Field(default=None, description="HTML-formatted event description.")
     eventtype: str | None = None
     courseid: int | None = None
     timestart: datetime | None = None
@@ -134,8 +162,10 @@ class MessageItem(BaseModel):
 
     id: int
     useridfrom: int
+    userfromfullname: str | None = None
     subject: str | None = None
     fullmessage: str | None = None
+    eventtype: str | None = None
     timecreated: datetime | None = None
 
     @field_validator("timecreated", mode="before")
