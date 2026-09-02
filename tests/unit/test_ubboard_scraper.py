@@ -9,7 +9,9 @@ from plato_mcp.errors import ScrapeError
 from plato_mcp.ubboard.scraper import (
     find_board_id,
     get_notice_detail_for,
+    get_qna_detail_for,
     list_notices_for,
+    list_qna_for,
 )
 
 COURSE_CONTENTS = [
@@ -127,3 +129,52 @@ def test_get_notice_detail_for_resolves_board_and_parses(mock_client, mock_ubboa
 
     call_args = mock_ubboard_session.requests_session.get.call_args
     assert call_args.kwargs["params"] == {"id": 37082, "bwid": 14938}
+
+
+def test_list_qna_for_uses_qna_board_not_notice_board(mock_client, mock_ubboard_session, mocker):
+    """Empty board case -- the only kind of Q&A board ever actually observed
+    live (see docs/ubboard_structure.md section 5)."""
+    empty_html = """
+    <div class="grid-table">
+      <div class="grid-row grid-row-header"></div>
+      <div class="grid-row grid-row-nodata"></div>
+    </div>
+    """
+    resp = mocker.Mock(text=empty_html)
+    resp.raise_for_status.return_value = None
+    mock_ubboard_session.requests_session.get.return_value = resp
+
+    result = list_qna_for(mock_client, mock_ubboard_session, course_id=6253)
+
+    assert result == []
+    call_args = mock_ubboard_session.requests_session.get.call_args
+    assert call_args.kwargs["params"]["id"] == 37083  # the qna board, not 37082 (notice)
+
+
+def test_get_qna_detail_for_uses_qna_board_and_parses_like_notice(
+    mock_client, mock_ubboard_session, mocker
+):
+    """No real Q&A thread has ever been observed, so this can only be
+    verified against the same detail-page structure as Notices (same
+    ubboard theme). Replies are explicitly not parsed -- see get_qna_detail_for's
+    docstring."""
+    detail_html = """
+    <h3 class="article-title">Question about grading</h3>
+    <div class="subject-box-description">
+      <div class="csms-user-picture"><div class="text-truncate">A Student</div></div>
+      <div class="subject-description-date">2026-09-01 10:00:00</div>
+    </div>
+    <div class="article-content"><div class="text_to_html"><p>How is this graded?</p></div></div>
+    """
+    resp = mocker.Mock(text=detail_html)
+    resp.raise_for_status.return_value = None
+    mock_ubboard_session.requests_session.get.return_value = resp
+
+    result = get_qna_detail_for(mock_client, mock_ubboard_session, course_id=6253, post_id=1)
+
+    assert result.title == "Question about grading"
+    assert result.writer == "A Student"
+    assert "How is this graded?" in result.content_html
+
+    call_args = mock_ubboard_session.requests_session.get.call_args
+    assert call_args.kwargs["params"] == {"id": 37083, "bwid": 1}

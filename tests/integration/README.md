@@ -26,6 +26,21 @@ Run against a real PLATO account with at least one enrolled course.
       not a bug -- confirmed by checking their raw timestamps)
 - [x] `get_unread_messages` — returns real unread notifications (verified: 3 real "new login" notifications)
 
+## Phase 2 checklist (issues #19-#23)
+
+- [x] `list_notices` — returns the real notice for 재무관리 (course 5973), matches the browser exactly
+      (title/writer/date/view count); empty boards (e.g. 6253) return `[]`
+- [x] `get_notice_detail` — matches the browser for the same real notice
+- [x] `list_qna` — verified against 3 real courses, all return `[]` (every Q&A board on this account is
+      genuinely empty, confirmed live)
+- [ ] `get_qna_detail` — **never exercised against a real post.** No course on this account has ever had a
+      Q&A question posted (checked live across all 10 enrolled courses). Implemented by reusing the same
+      detail-page parser as `get_notice_detail` (same ubboard theme), which is a reasonable assumption but
+      not a verified one for the Q&A board specifically. **Replies/threads are not parsed at all** -- no
+      such page has ever been observed to know its markup. Re-run this once a real Q&A question (ideally
+      with at least one reply) exists, and check `docs/ubboard_structure.md` section 5 for what's still
+      unknown.
+
 ## Known gap
 
 `list_assignments`/`get_assignment_detail`'s "assignment exists and has a submission" path has never
