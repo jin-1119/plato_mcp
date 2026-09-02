@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from plato_mcp.errors import PlatoMCPError
 from plato_mcp.moodle_client import MoodleClient
+from plato_mcp.security import default_rate_limiter
 
 # Deliberately conservative: course-material types only, no executables/scripts.
 ALLOWED_EXTENSIONS = {
@@ -59,6 +60,7 @@ def download_course_file_for(
     # in the URL -- only catch and sanitize what `requests` does with it on
     # failure, since HTTPError/RequestException otherwise embed the full
     # URL (token included) verbatim in their message.
+    default_rate_limiter.check(client.session_key)
     try:
         resp = requests.get(download_url, stream=True, timeout=30)
         resp.raise_for_status()

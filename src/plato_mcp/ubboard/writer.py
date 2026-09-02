@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 
 from plato_mcp.auth import PlatoSession
 from plato_mcp.errors import ScrapeError
+from plato_mcp.security import default_rate_limiter
 
 BASE_URL = "https://plato.pusan.ac.kr"
 WRITE_FORM_ID = "mformubboard"
@@ -27,6 +28,7 @@ DEFAULT_SECRET = 1
 
 
 def _fetch_write_form_tokens(session: PlatoSession, board_id: int) -> dict:
+    default_rate_limiter.check(session.session_key)
     resp = session.requests_session.get(
         f"{BASE_URL}/mod/ubboard/write.php", params={"id": board_id}, timeout=15
     )
@@ -62,6 +64,7 @@ def post_new_thread(
     """
     tokens = _fetch_write_form_tokens(session, board_id)
 
+    default_rate_limiter.check(session.session_key)
     resp = session.requests_session.post(
         f"{BASE_URL}/mod/ubboard/write.php",
         params={"id": board_id},

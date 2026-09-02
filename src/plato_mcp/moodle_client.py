@@ -11,6 +11,7 @@ import requests
 
 from plato_mcp.auth import SessionManager
 from plato_mcp.errors import MoodleAPIError
+from plato_mcp.security import default_rate_limiter
 
 logger = logging.getLogger("plato_mcp.moodle_client")
 
@@ -62,6 +63,12 @@ class MoodleClient:
         self._rest_endpoint = rest_endpoint
         self._timeout = timeout
 
+    @property
+    def session_key(self) -> str:
+        """Exposed so callers outside call()/_raw_call() (e.g. files.py) can
+        rate-limit their own requests against the same per-session budget."""
+        return self._session_key
+
     def get_wstoken(self) -> str:
         """Ensure a logged-in session and return its wstoken.
 
@@ -100,6 +107,7 @@ class MoodleClient:
         # a GET would put it in the request URL, which `requests`/urllib3
         # embed verbatim in HTTPError/ConnectionError messages on failure
         # (see the equivalent fix in auth.py._fetch_token for a live repro).
+        default_rate_limiter.check(self._session_key)
         body = {"wstoken": wstoken, "wsfunction": wsfunction, "moodlewsrestformat": "json"}
         body.update(flatten_params(params))
         try:
