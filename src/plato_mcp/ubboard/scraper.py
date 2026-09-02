@@ -11,6 +11,7 @@ import json
 from plato_mcp.auth import PlatoSession
 from plato_mcp.errors import ScrapeError
 from plato_mcp.moodle_client import MoodleClient
+from plato_mcp.security import default_rate_limiter
 from plato_mcp.ubboard.models import UbboardPostDetail, UbboardPostSummary
 from plato_mcp.ubboard.parser import parse_detail_page, parse_list_page
 
@@ -37,6 +38,7 @@ def fetch_list_html(session: PlatoSession, board_id: int) -> str:
     # listsize=0 asks ubboard for every post on one page ("All" in the UI),
     # sidestepping page-by-page pagination entirely -- see docs/ubboard_structure.md
     # section 3. Fine at this project's scale (course boards, not forums).
+    default_rate_limiter.check(session.session_key)
     resp = session.requests_session.get(
         f"{BASE_URL}/mod/ubboard/view.php",
         params={"id": board_id, "listsize": 0},
@@ -47,6 +49,7 @@ def fetch_list_html(session: PlatoSession, board_id: int) -> str:
 
 
 def fetch_detail_html(session: PlatoSession, board_id: int, post_id: int) -> str:
+    default_rate_limiter.check(session.session_key)
     resp = session.requests_session.get(
         f"{BASE_URL}/mod/ubboard/article.php",
         params={"id": board_id, "bwid": post_id},

@@ -21,7 +21,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from plato_mcp.errors import AuthError, UbboardLoginError
-from plato_mcp.security import redact
+from plato_mcp.security import default_rate_limiter, redact
 
 logger = logging.getLogger("plato_mcp.auth")
 
@@ -32,10 +32,19 @@ SERVICE = "moodle_mobile_app"
 IDLE_TTL = timedelta(minutes=30)
 SESSKEY_RE = re.compile(r'"sesskey":"(\w+)"')
 
+# Cap on consecutive failed login attempts per session key, before further
+# attempts are blocked without even touching the network. This is about
+# protecting the PLATO *account* from looking like it's under a brute-force
+# attempt, not just about our own request volume (that's what RateLimiter
+# is for) -- so it's enforced separately and isn't refilled over time; it
+# only clears on a successful login or an explicit invalidate().
+MAX_LOGIN_ATTEMPTS = 3
+
 
 @dataclass
 class PlatoSession:
     username: str
+    session_key: str = ""
     wstoken: str | None = None
     wstoken_obtained_at: datetime | None = None
     requests_session: requests.Session | None = None
@@ -68,6 +77,22 @@ class SessionManager:
         self._lock = threading.Lock()
         self._idle_ttl = idle_ttl
         self._token_endpoint = token_endpoint
+        self._failed_attempts: dict[str, int] = {}
+
+    def _check_attempt_budget(self, session_key: str) -> None:
+        if self._failed_attempts.get(session_key, 0) >= MAX_LOGIN_ATTEMPTS:
+            raise AuthError(
+                f"Too many failed login attempts ({MAX_LOGIN_ATTEMPTS}) for this session. "
+                "Call invalidate() or start a fresh session before trying again."
+            )
+
+    def _record_login_failure(self, session_key: str) -> None:
+        with self._lock:
+            self._failed_attempts[session_key] = self._failed_attempts.get(session_key, 0) + 1
+
+    def _record_login_success(self, session_key: str) -> None:
+        with self._lock:
+            self._failed_attempts.pop(session_key, None)
 
     def _evict_stale(self) -> None:
         now = datetime.now(UTC)
@@ -134,11 +159,18 @@ class SessionManager:
         if cached is not None and cached.wstoken:
             return cached
 
-        token = self._fetch_token(username, password)
+        self._check_attempt_budget(session_key)
+        default_rate_limiter.check(session_key)
+        try:
+            token = self._fetch_token(username, password)
+        except AuthError:
+            self._record_login_failure(session_key)
+            raise
+        self._record_login_success(session_key)
         with self._lock:
             session = self._cache.get(session_key)
             if session is None:
-                session = PlatoSession(username=username)
+                session = PlatoSession(username=username, session_key=session_key)
                 self._cache[session_key] = session
             session.wstoken = token
             session.wstoken_obtained_at = datetime.now(UTC)
@@ -196,11 +228,18 @@ class SessionManager:
         if cached is not None and cached.requests_session is not None and cached.ubboard_sesskey:
             return cached
 
-        http_session, sesskey = self._cookie_login(username, password)
+        self._check_attempt_budget(session_key)
+        default_rate_limiter.check(session_key)
+        try:
+            http_session, sesskey = self._cookie_login(username, password)
+        except UbboardLoginError:
+            self._record_login_failure(session_key)
+            raise
+        self._record_login_success(session_key)
         with self._lock:
             session = self._cache.get(session_key)
             if session is None:
-                session = PlatoSession(username=username)
+                session = PlatoSession(username=username, session_key=session_key)
                 self._cache[session_key] = session
             session.requests_session = http_session
             session.ubboard_sesskey = sesskey
@@ -228,3 +267,4 @@ class SessionManager:
     def invalidate(self, session_key: str) -> None:
         with self._lock:
             self._cache.pop(session_key, None)
+            self._failed_attempts.pop(session_key, None)
