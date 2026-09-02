@@ -19,6 +19,8 @@ EXPECTED_TOOLS = {
     # Phase 3 (write)
     "submit_assignment",
     "post_qna_question",
+    # Phase 4 (files)
+    "download_course_file",
 }
 
 
