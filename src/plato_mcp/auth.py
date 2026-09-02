@@ -12,21 +12,25 @@ Design constraints (see PLAN.md / issue #10):
 """
 
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import requests
+from bs4 import BeautifulSoup
 
-from plato_mcp.errors import AuthError
+from plato_mcp.errors import AuthError, UbboardLoginError
 from plato_mcp.security import redact
 
 logger = logging.getLogger("plato_mcp.auth")
 
 BASE_URL = "https://plato.pusan.ac.kr"
 TOKEN_ENDPOINT = f"{BASE_URL}/login/token.php"
+LOGIN_PAGE_URL = f"{BASE_URL}/login/index.php"
 SERVICE = "moodle_mobile_app"
 IDLE_TTL = timedelta(minutes=30)
+SESSKEY_RE = re.compile(r'"sesskey":"(\w+)"')
 
 
 @dataclass
@@ -102,19 +106,87 @@ class SessionManager:
             return session
 
     def get_or_login(self, session_key: str, username: str, password: str) -> PlatoSession:
-        """Return the cached session, or log in fresh if none is cached."""
+        """Return the cached session, or log in fresh if none is cached.
+
+        Mutates an existing cache entry in place (rather than replacing it)
+        so an ubboard cookie session attached by ensure_ubboard_session()
+        isn't discarded if this is called afterwards.
+        """
         cached = self.get(session_key)
         if cached is not None and cached.wstoken:
             return cached
 
         token = self._fetch_token(username, password)
-        session = PlatoSession(
-            username=username,
-            wstoken=token,
-            wstoken_obtained_at=datetime.now(UTC),
-        )
         with self._lock:
-            self._cache[session_key] = session
+            session = self._cache.get(session_key)
+            if session is None:
+                session = PlatoSession(username=username)
+                self._cache[session_key] = session
+            session.wstoken = token
+            session.wstoken_obtained_at = datetime.now(UTC)
+            session.touch()
+        return session
+
+    def _cookie_login(self, username: str, password: str) -> tuple[requests.Session, str]:
+        """Form-POST login for ubboard (cookie-session, not wstoken).
+
+        Uses the school-SSO tab (logintab=univ) -- same credentials as the
+        wstoken flow. Never logs the password. Raises UbboardLoginError on
+        any failure (bad credentials, unexpected page structure, etc).
+        """
+        http_session = requests.Session()
+        get_resp = http_session.get(LOGIN_PAGE_URL, timeout=15)
+        soup = BeautifulSoup(get_resp.text, "html.parser")
+        form = soup.find("form", id="form-login-sso")
+        if form is None:
+            raise UbboardLoginError("PLATO login page structure changed (form-login-sso missing)")
+        logintoken_input = form.find("input", {"name": "logintoken"})
+        logintoken = logintoken_input["value"] if logintoken_input else ""
+
+        post_resp = http_session.post(
+            LOGIN_PAGE_URL,
+            data={
+                "anchor": "",
+                "logintoken": logintoken,
+                "logintab": "univ",
+                "username": username,
+                "password": password,
+                "rememberusername": 1,
+            },
+            timeout=15,
+        )
+
+        if "MoodleSession" not in http_session.cookies or "logout.php" not in post_resp.text:
+            logger.warning("ubboard cookie login failed for user=%s", redact(username))
+            raise UbboardLoginError("PLATO cookie-session login failed (check credentials)")
+
+        match = SESSKEY_RE.search(post_resp.text)
+        if not match:
+            raise UbboardLoginError("Logged in but could not extract sesskey from the page")
+
+        return http_session, match.group(1)
+
+    def ensure_ubboard_session(
+        self, session_key: str, username: str, password: str
+    ) -> PlatoSession:
+        """Ensure the cached session has a cookie session + sesskey for ubboard.
+
+        Like get_or_login(), mutates an existing cache entry in place so a
+        prior wstoken (or vice versa) isn't discarded.
+        """
+        cached = self.get(session_key)
+        if cached is not None and cached.requests_session is not None and cached.ubboard_sesskey:
+            return cached
+
+        http_session, sesskey = self._cookie_login(username, password)
+        with self._lock:
+            session = self._cache.get(session_key)
+            if session is None:
+                session = PlatoSession(username=username)
+                self._cache[session_key] = session
+            session.requests_session = http_session
+            session.ubboard_sesskey = sesskey
+            session.touch()
         return session
 
     def refresh(self, session_key: str, username: str, password: str) -> PlatoSession:
