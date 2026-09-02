@@ -80,13 +80,31 @@ class SessionManager:
             del self._cache[key]
 
     def _fetch_token(self, username: str, password: str) -> str:
-        """Call login/token.php. Never logs the password."""
-        resp = requests.get(
-            self._token_endpoint,
-            params={"username": username, "password": password, "service": SERVICE},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        """Call login/token.php. Never logs the password.
+
+        Uses POST (data=), not GET (params=) -- Moodle accepts both, but a
+        GET puts username/password in the request URL, and `requests`
+        (and urllib3 below it) embeds that full URL verbatim in HTTPError/
+        ConnectionError messages. A failed login would then leak the
+        plaintext password into any exception message, log, or traceback
+        that mentions the error. Confirmed live: a 404 against this same
+        pattern with GET produced `...for url: .../x?password=SECRET123`.
+        POST keeps the credentials in the body, which requests/urllib3
+        never echoes back into its own error text.
+        """
+        try:
+            resp = requests.post(
+                self._token_endpoint,
+                data={"username": username, "password": password, "service": SERVICE},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning(
+                "PLATO login request failed for user=%s: %s", redact(username), type(e).__name__
+            )
+            raise AuthError("PLATO login request failed (network or HTTP error)") from None
+
         data = resp.json()
         if "token" not in data:
             errorcode = data.get("errorcode", "unknown")

@@ -86,7 +86,7 @@ def test_fetch_token_failure_log_never_contains_password(manager, mocker, caplog
     mock_response = mocker.Mock()
     mock_response.raise_for_status.return_value = None
     mock_response.json.return_value = {"errorcode": "invalidlogin", "error": "bad login"}
-    mocker.patch("plato_mcp.auth.requests.get", return_value=mock_response)
+    mocker.patch("plato_mcp.auth.requests.post", return_value=mock_response)
 
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(AuthError):

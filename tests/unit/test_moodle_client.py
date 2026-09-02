@@ -35,7 +35,7 @@ def test_call_success_returns_result(client, mocker):
     mock_resp = mocker.Mock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"sitename": "PLATO"}
-    mocker.patch("plato_mcp.moodle_client.requests.get", return_value=mock_resp)
+    mocker.patch("plato_mcp.moodle_client.requests.post", return_value=mock_resp)
 
     result = client.call("core_webservice_get_site_info")
     assert result == {"sitename": "PLATO"}
@@ -49,7 +49,7 @@ def test_call_generic_error_raises_moodle_api_error(client, mocker):
         "errorcode": "nopermissiontoviewgrades",
         "message": "No permission",
     }
-    mocker.patch("plato_mcp.moodle_client.requests.get", return_value=mock_resp)
+    mocker.patch("plato_mcp.moodle_client.requests.post", return_value=mock_resp)
 
     with pytest.raises(MoodleAPIError) as excinfo:
         client.call("gradereport_user_get_grade_items", courseid=1)
@@ -65,12 +65,12 @@ def test_call_invalidtoken_retries_once_then_succeeds(client, manager_with_sessi
     ]
     for r in responses:
         r.raise_for_status.return_value = None
-    mock_get = mocker.patch("plato_mcp.moodle_client.requests.get", side_effect=responses)
+    mock_post = mocker.patch("plato_mcp.moodle_client.requests.post", side_effect=responses)
 
     result = client.call("core_webservice_get_site_info")
 
     assert result == {"sitename": "PLATO"}
-    assert mock_get.call_count == 2
+    assert mock_post.call_count == 2
     assert fetch.call_count == 1  # exactly one refresh, not stuck retrying
 
 
@@ -80,25 +80,25 @@ def test_call_invalidtoken_twice_raises_after_single_retry(client, manager_with_
     mock_resp = mocker.Mock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"errorcode": "invalidtoken"}
-    mock_get = mocker.patch("plato_mcp.moodle_client.requests.get", return_value=mock_resp)
+    mock_post = mocker.patch("plato_mcp.moodle_client.requests.post", return_value=mock_resp)
 
     with pytest.raises(MoodleAPIError) as excinfo:
         client.call("core_webservice_get_site_info")
 
     assert excinfo.value.errorcode == "invalidtoken"
-    assert mock_get.call_count == 2  # tried once, retried once, then gave up
+    assert mock_post.call_count == 2  # tried once, retried once, then gave up
 
 
-def test_call_passes_wstoken_and_wsfunction_in_query(client, mocker):
+def test_call_passes_wstoken_and_wsfunction_in_post_body(client, mocker):
     mock_resp = mocker.Mock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"ok": True}
-    mock_get = mocker.patch("plato_mcp.moodle_client.requests.get", return_value=mock_resp)
+    mock_post = mocker.patch("plato_mcp.moodle_client.requests.post", return_value=mock_resp)
 
     client.call("core_course_get_contents", courseid=6253)
 
-    _, kwargs = mock_get.call_args
-    assert kwargs["params"]["wstoken"] == "tok-initial"
-    assert kwargs["params"]["wsfunction"] == "core_course_get_contents"
-    assert kwargs["params"]["moodlewsrestformat"] == "json"
-    assert kwargs["params"]["courseid"] == 6253
+    _, kwargs = mock_post.call_args
+    assert kwargs["data"]["wstoken"] == "tok-initial"
+    assert kwargs["data"]["wsfunction"] == "core_course_get_contents"
+    assert kwargs["data"]["moodlewsrestformat"] == "json"
+    assert kwargs["data"]["courseid"] == 6253

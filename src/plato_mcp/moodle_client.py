@@ -96,8 +96,21 @@ class MoodleClient:
         return result
 
     def _raw_call(self, wstoken: str, wsfunction: str, params: dict) -> dict | list:
-        query = {"wstoken": wstoken, "wsfunction": wsfunction, "moodlewsrestformat": "json"}
-        query.update(flatten_params(params))
-        resp = requests.get(self._rest_endpoint, params=query, timeout=self._timeout)
-        resp.raise_for_status()
+        # POST (data=), not GET (params=) -- wstoken is a live credential, and
+        # a GET would put it in the request URL, which `requests`/urllib3
+        # embed verbatim in HTTPError/ConnectionError messages on failure
+        # (see the equivalent fix in auth.py._fetch_token for a live repro).
+        body = {"wstoken": wstoken, "wsfunction": wsfunction, "moodlewsrestformat": "json"}
+        body.update(flatten_params(params))
+        try:
+            resp = requests.post(self._rest_endpoint, data=body, timeout=self._timeout)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning(
+                "Moodle REST call failed for wsfunction=%s: %s", wsfunction, type(e).__name__
+            )
+            raise MoodleAPIError(
+                f"Moodle REST call failed (network or HTTP error): {type(e).__name__}",
+                errorcode="request_failed",
+            ) from None
         return resp.json()
