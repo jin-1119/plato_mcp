@@ -29,6 +29,8 @@ def _epoch(dt: datetime) -> int:
 
 
 def test_list_courses_for(mock_client):
+    start = datetime(2026, 9, 1, tzinfo=UTC)
+    end = datetime(2026, 12, 20, tzinfo=UTC)
     mock_client.call.side_effect = lambda fn, **kw: (
         {"userid": 448520}
         if fn == "core_webservice_get_site_info"
@@ -38,14 +40,27 @@ def test_list_courses_for(mock_client):
                 "fullname": "거시경제학",
                 "shortname": "MACRO",
                 "visible": 1,
+                "startdate": _epoch(start),
+                "enddate": _epoch(end),
                 "extra": "ignored",
+            },
+            {
+                "id": 12633,
+                "fullname": "[25.동계] 영어연수 단기파견",
+                "shortname": "WINTER",
+                "visible": 1,
+                "startdate": _epoch(datetime(2025, 12, 1, tzinfo=UTC)),
+                "enddate": 0,  # Moodle's "no end date set"
             },
         ]
     )
     result = list_courses_for(mock_client)
-    assert len(result) == 1
+    assert len(result) == 2
     assert result[0].id == 6253
     assert result[0].fullname == "거시경제학"
+    assert result[0].startdate == start
+    assert result[0].enddate == end
+    assert result[1].enddate is None  # 0 -> None, not epoch-zero datetime
 
 
 def test_get_course_contents_for(mock_client):

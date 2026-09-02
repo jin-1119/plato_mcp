@@ -23,6 +23,17 @@ class CourseSummary(BaseModel):
     fullname: str
     shortname: str
     visible: bool = True
+    # Moodle has no separate "term/semester" field -- startdate/enddate (from
+    # core_enrol_get_users_courses) are the only structured signal of which
+    # semester a course belongs to. enddate=0 means "no end date set" (some
+    # long-running programs are like this), which maps to None below.
+    startdate: datetime | None = None
+    enddate: datetime | None = None
+
+    @field_validator("startdate", "enddate", mode="before")
+    @classmethod
+    def _convert_epoch(cls, v: int | None) -> datetime | None:
+        return _epoch_to_datetime(v)
 
 
 class FileEntry(BaseModel):
