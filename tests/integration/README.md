@@ -70,6 +70,15 @@ Run against a real PLATO account with at least one enrolled course.
       `docs/ubboard_structure.md` section 6. Needs a real thread to exist before this can be built
       on anything other than a guess.
 
+## PII review follow-up (issue #36)
+
+- [ ] Whether PLATO enforces a Q&A post's "secret" (private/instructor-only) flag
+      **server-side** -- i.e. whether `list_qna`/`get_qna_detail` from a *different*
+      account would simply never receive that post's content -- has never been
+      tested. Verify by posting a real `secret` Q&A question from one account and
+      confirming a second account can't see it via these tools. See
+      `docs/pii_review.md` for the full review.
+
 ## Known gap
 
 `list_assignments`/`get_assignment_detail`'s "assignment exists and has a submission" path has never

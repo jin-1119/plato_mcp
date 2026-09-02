@@ -45,7 +45,11 @@ class FileEntry(BaseModel):
     type: str | None = None
     mimetype: str | None = None
     author: str | None = Field(
-        default=None, description="Who uploaded this file (often the instructor)."
+        default=None,
+        description=(
+            "Who uploaded this file -- course materials are almost always uploaded "
+            "by staff, not classmates (see docs/pii_review.md, issue #36)."
+        ),
     )
     timemodified: datetime | None = None
     needs_token: bool = Field(
@@ -317,7 +321,14 @@ class MessageItem(BaseModel):
 
     id: int
     useridfrom: int
-    userfromfullname: str | None = None
+    userfromfullname: str | None = Field(
+        default=None,
+        description=(
+            "Sender's display name -- these are notifications addressed to this "
+            "account (e.g. system alerts), not a public feed of other users' "
+            "messages (see docs/pii_review.md, issue #36)."
+        ),
+    )
     subject: str | None = None
     fullmessage: str | None = None
     eventtype: str | None = None
