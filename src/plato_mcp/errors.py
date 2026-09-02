@@ -9,6 +9,12 @@ class AuthError(PlatoMCPError):
     """Login to PLATO failed, or no active session exists."""
 
 
+class UbboardLoginError(AuthError):
+    """Cookie-session login (for ubboard scraping) failed -- distinct from a
+    wstoken (official API) login failure, since it's a different auth path
+    against a different endpoint."""
+
+
 class MoodleAPIError(PlatoMCPError):
     """A Moodle webservice call returned an error envelope."""
 
