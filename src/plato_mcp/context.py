@@ -21,13 +21,19 @@ def _session_key(ctx: Context) -> str:
 
 
 def get_client(ctx: Context) -> MoodleClient:
-    config = load_config()
-    return MoodleClient(_session_manager, _session_key(ctx), config.pnu_id, config.pnu_password)
+    config = load_config(ctx.headers)
+    return MoodleClient(
+        _session_manager,
+        _session_key(ctx),
+        config.pnu_id,
+        config.pnu_password,
+        timeout=config.request_timeout_seconds,
+    )
 
 
 def get_ubboard_session(ctx: Context) -> PlatoSession:
     """Ensure a cookie-session (for ubboard scraping) is ready for this connection."""
-    config = load_config()
+    config = load_config(ctx.headers)
     return _session_manager.ensure_ubboard_session(
         _session_key(ctx), config.pnu_id, config.pnu_password
     )

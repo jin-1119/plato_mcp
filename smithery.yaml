@@ -1,0 +1,27 @@
+runtime: "container"
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+startCommand:
+  type: "http"
+configSchema:
+  type: "object"
+  properties:
+    pnu_id:
+      type: "string"
+      description: "PNU student ID (학번) used to log into PLATO."
+    pnu_password:
+      type: "string"
+      description: "PNU portal password. Never stored -- used for the duration of the session only."
+    request_timeout_seconds:
+      type: "integer"
+      description: "HTTP timeout (seconds) for requests to PLATO."
+      default: 15
+    max_download_mb:
+      type: "integer"
+      description: "Maximum course-file size (MB) that download_course_file will fetch."
+      default: 20
+  required: ["pnu_id", "pnu_password"]
+exampleConfig:
+  pnu_id: "202312345"
+  pnu_password: "your-pnu-password"

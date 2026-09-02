@@ -131,6 +131,34 @@ Smithery's per-request query params for the container runtime.)
   flagging as a separate small gap, since it's part of the config schema but
   has no effect today.
 
+## Addendum (issue #30 implementation)
+
+One detail the original research above didn't catch: this SDK's
+streamable-http transport (`mcp/server/_streamable_http_modern.py`) builds
+`TransportContext(..., headers=request.headers)` -- it only threads
+**headers** through to `Context.headers`, never the raw query string. Since
+Smithery's container runtime delivers `configSchema` values as query
+params, a naive implementation reading only `ctx.headers` would never see
+them. Fixed with `asgi.py`'s `QueryParamsToHeadersMiddleware`, a small raw
+ASGI shim wrapping `mcp.streamable_http_app()` that copies the four known
+config keys (`pnu_id`, `pnu_password`, `request_timeout_seconds`,
+`max_download_mb`) from the query string into request headers before the
+MCP app parses the request, with an explicit header of the same name always
+winning over a query param. Verified end-to-end locally (not just unit
+tests): booted the server with `MCP_TRANSPORT=streamable-http`, sent a
+`tools/call` for `list_courses` with `?pnu_id=testid&pnu_password=testpw`
+on the URL, and confirmed the server attempted a real PLATO login with
+those exact fake credentials (`AuthError: PLATO login failed
+(invalidlogin)`) rather than silently falling back to the real `.env`
+credentials present in this dev environment.
+
+Not verified in this environment: `docker build`/`docker run` and
+`docker history` (no Docker installed here). The Dockerfile only `COPY`s
+`pyproject.toml`, `README.md`, and `src/` (never `.env`), and `.dockerignore`
+excludes it too as a second layer, so no credentials should end up in any
+image layer -- but that should still get an actual `docker build` +
+`docker history` check before #32 (public listing).
+
 ## Sources
 
 - https://smithery.ai/docs/build/deployments/custom-container

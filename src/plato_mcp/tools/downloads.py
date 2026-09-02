@@ -17,7 +17,7 @@ def register(mcp) -> None:
         Only common course-material extensions are allowed (pdf, office docs,
         images, zip, txt); downloads over the configured size limit are rejected.
         """
-        config = load_config()
+        config = load_config(ctx.headers)
         return download_course_file_for(
             get_client(ctx), file_url, save_path, config.max_download_mb
         )
