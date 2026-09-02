@@ -324,6 +324,8 @@ def test_submit_assignment_for_real_run_calls_save_submission(mock_client):
 
     mock_client.call.side_effect = fake_call
 
+    # dry_run=False now requires a matching preview first (issue #37).
+    submit_assignment_for(mock_client, course_id=6253, assignment_id=1, text="my answer")
     result = submit_assignment_for(
         mock_client, course_id=6253, assignment_id=1, text="my answer", dry_run=False
     )

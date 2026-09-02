@@ -66,6 +66,10 @@ def test_post_qna_question_for_real_run_posts(mock_client, mock_ubboard_session,
     mock_ubboard_session.requests_session.get.return_value = get_resp
     mock_ubboard_session.requests_session.post.return_value = post_resp
 
+    # dry_run=False now requires a matching preview first (issue #37).
+    post_qna_question_for(
+        mock_client, mock_ubboard_session, course_id=6253, subject="Q1", content_text="body"
+    )
     result = post_qna_question_for(
         mock_client,
         mock_ubboard_session,

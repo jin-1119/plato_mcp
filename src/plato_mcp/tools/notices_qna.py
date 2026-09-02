@@ -21,25 +21,34 @@ from plato_mcp.ubboard.writer import post_new_thread
 from plato_mcp.write_tools import (
     WRITE_TOOL_ANNOTATIONS,
     WriteResult,
+    default_preview_tracker,
     executed_result,
     preview_result,
 )
+
+ACTION_POST_QNA_QUESTION = "post_qna_question"
 
 
 def post_qna_question_for(
     client, ubboard_session, course_id: int, subject: str, content_text: str, dry_run: bool = True
 ) -> WriteResult:
+    """See docs/write_confirmation_pattern.md. dry_run=False is only allowed
+    after a matching dry_run=True preview (same session, course_id, subject,
+    content_text) -- enforced server-side via write_tools.PreviewTracker
+    (issue #37), not just a docstring convention."""
     board_id = find_board_id(client, course_id, "qna")
-    preview = {
-        "course_id": course_id,
-        "board_id": board_id,
-        "subject": subject,
-        "content_text": content_text,
-    }
+    action_params = {"course_id": course_id, "subject": subject, "content_text": content_text}
+    preview = {**action_params, "board_id": board_id}
 
     if dry_run:
+        default_preview_tracker.record_preview(
+            ubboard_session.session_key, ACTION_POST_QNA_QUESTION, action_params
+        )
         return preview_result(preview, f"Q&A question '{subject}'")
 
+    default_preview_tracker.require_previewed(
+        ubboard_session.session_key, ACTION_POST_QNA_QUESTION, action_params
+    )
     post_new_thread(ubboard_session, board_id, subject, content_text)
     return executed_result(preview, f"Q&A question '{subject}'")
 
