@@ -8,7 +8,7 @@ into headers before the wrapped app sees the request.
 
 import pytest
 
-from plato_mcp.asgi import QueryParamsToHeadersMiddleware
+from plato_mcp.asgi import QueryParamsToHeadersMiddleware, RedactedAccessLogMiddleware
 
 
 def _http_scope(query_string: bytes, headers: list[tuple[bytes, bytes]] | None = None) -> dict:
@@ -77,3 +77,61 @@ async def test_non_http_scope_passed_through_untouched():
     await app(scope, None, None)
 
     assert captured["scope"] is scope
+
+
+@pytest.mark.asyncio
+async def test_malformed_query_string_does_not_crash_the_request():
+    # issue #63 review: parse_qsl(query_string.decode("utf-8")) previously
+    # raised UnicodeDecodeError unhandled on a non-UTF-8 query string.
+    called = {}
+
+    async def inner_app(scope, receive, send):
+        called["ran"] = True
+
+    app = QueryParamsToHeadersMiddleware(inner_app)
+    await app(_http_scope(b"pnu_id=%FF%FE"), None, None)  # invalid UTF-8 bytes
+
+    assert called.get("ran") is True
+
+
+class TestRedactedAccessLogMiddleware:
+    """issue #63: uvicorn's default access log includes the query string
+    (which carries pnu_id/pnu_password in plaintext) -- this middleware
+    replaces it with one that logs method/path/status only."""
+
+    @pytest.mark.asyncio
+    async def test_logs_path_without_query_string(self, caplog):
+        import logging
+
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+
+        app = RedactedAccessLogMiddleware(inner_app)
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "query_string": b"pnu_id=202443155&pnu_password=supersecret",
+        }
+        async def noop_send(message):
+            pass
+
+        with caplog.at_level(logging.INFO, logger="plato_mcp.access"):
+            await app(scope, None, noop_send)
+
+        assert "supersecret" not in caplog.text
+        assert "/mcp" in caplog.text
+        assert "200" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_non_http_scope_passed_through_untouched(self):
+        captured = {}
+
+        async def inner_app(scope, receive, send):
+            captured["scope"] = scope
+
+        app = RedactedAccessLogMiddleware(inner_app)
+        scope = {"type": "lifespan"}
+        await app(scope, None, None)
+
+        assert captured["scope"] is scope

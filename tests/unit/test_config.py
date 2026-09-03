@@ -67,3 +67,20 @@ def test_headers_supply_optional_fields():
 def test_no_config_anywhere_raises():
     with pytest.raises(RuntimeError):
         load_config(headers=None)
+
+
+def test_invalid_header_value_error_does_not_echo_raw_input():
+    # issue #63 review: the old message interpolated pydantic's
+    # ValidationError directly, which echoes back the invalid raw value.
+    with pytest.raises(RuntimeError) as exc_info:
+        load_config(
+            headers={
+                "pnu_id": "header-id",
+                "pnu_password": "header-pw",
+                "max_download_mb": "not-an-int",
+            }
+        )
+
+    message = str(exc_info.value)
+    assert "not-an-int" not in message
+    assert "max_download_mb" in message
