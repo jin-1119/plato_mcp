@@ -1,8 +1,23 @@
 """Typed exceptions for plato-mcp, mapped to clean MCP-facing error messages."""
 
+from mcp.server.mcpserver.exceptions import ToolError
 
-class PlatoMCPError(Exception):
-    """Base class for all plato-mcp errors."""
+
+class PlatoMCPError(ToolError):
+    """Base class for all plato-mcp errors.
+
+    Inherits from the SDK's `ToolError` (an "anticipated failure" marker),
+    not plain `Exception` -- confirmed by reading `ToolError`'s docstring
+    (mcp/server/mcpserver/exceptions.py) and reproducing it live (issue
+    #60/#63 review): the SDK's tool dispatch (tools/base.py) treats any
+    plain `Exception` as an unanticipated crash and replaces its message
+    with a generic "Error executing tool <name>" before it reaches the
+    model -- our carefully-written, security-reviewed error text (e.g.
+    RateLimitError's "try again shortly", or the sanitized download-failure
+    messages in files.py) was being silently discarded. `ToolError` (and
+    subclasses, which every exception below is) instead reaches the model
+    as `is_error=True` with the actual message intact. This one change
+    fixes every `PlatoMCPError` subclass at once, not just RateLimitError."""
 
 
 class AuthError(PlatoMCPError):
