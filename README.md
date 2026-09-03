@@ -22,6 +22,14 @@ known gap: whether PLATO enforces a Q&A post's "private/instructor-only" flag on
 the server side (so this tool would never see such a post at all) has not been
 empirically verified.
 
+> **TODO (issue #31):** when running remotely (e.g. via a Claude.ai Connector
+> rather than local Claude Code/Desktop), `download_course_file` for a large
+> file returns a download *link* rather than the file itself, and that link
+> has a live PLATO access token embedded in it -- sharing that link or a chat
+> transcript containing it hands out real API access, not just the one file.
+> See [`docs/smithery_deployment_model.md`](./docs/smithery_deployment_model.md)
+> for the full detail; #31's disclaimer needs to cover this for public users.
+
 ## Development
 
 ```bash
