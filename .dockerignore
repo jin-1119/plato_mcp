@@ -1,0 +1,15 @@
+.env
+.env.example
+.git
+.gitignore
+.github
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+tests/
+docs/
+scripts/
+PLAN.md
+PLATO_MCP_사전조사.md
+.claude/
