@@ -1,13 +1,17 @@
 """Unit tests for files.py -- mocked MoodleClient + requests, no live network."""
 
+import base64
+
 import pytest
 
 from plato_mcp.errors import PlatoMCPError
 from plato_mcp.files import (
+    DownloadContentResult,
     DownloadLinkResult,
     DownloadRejectedError,
     build_course_file_download_url,
     download_course_file_for,
+    fetch_course_file_content_or_link_for,
 )
 
 
@@ -158,3 +162,90 @@ def test_download_course_file_for_reuses_build_download_url(mock_client, tmp_pat
 
     called_url = mock_get.call_args.args[0]
     assert called_url == "https://x/y/file.pdf?token=TOK123"
+
+
+# -- fetch_course_file_content_or_link_for (issue #55 redesign: inline
+# base64 for small files, prompted by observing a real Claude.ai session
+# decode a Google Drive MCP tool's inline base64 response and present it as
+# an actual downloadable file -- see docs/smithery_deployment_model.md) --
+
+
+def _mock_resp(mocker, headers, chunks):
+    resp = mocker.MagicMock()
+    resp.headers = headers
+    resp.iter_content.return_value = chunks
+    resp.raise_for_status.return_value = None
+    resp.__enter__.return_value = resp
+    resp.__exit__.return_value = False
+    return resp
+
+
+def test_fetch_content_or_link_rejects_disallowed_extension(mock_client):
+    with pytest.raises(DownloadRejectedError):
+        fetch_course_file_content_or_link_for(mock_client, "https://x/y/malware.exe")
+
+
+def test_fetch_content_or_link_small_file_returns_inline_base64(mock_client, mocker):
+    resp = _mock_resp(
+        mocker, {"content-length": "5", "content-type": "application/pdf"}, [b"hello"]
+    )
+    mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+
+    result = fetch_course_file_content_or_link_for(mock_client, "https://x/y/file.pdf")
+
+    assert isinstance(result, DownloadContentResult)
+    assert result.filename == "file.pdf"
+    assert result.size_bytes == 5
+    assert result.mimetype == "application/pdf"
+    assert base64.b64decode(result.content_base64) == b"hello"
+
+
+def test_fetch_content_or_link_large_content_length_falls_back_to_link(mock_client, mocker):
+    big = 10 * 1024 * 1024  # 10MB, over the 5MB inline threshold
+    resp = _mock_resp(mocker, {"content-length": str(big)}, [])
+    mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+
+    result = fetch_course_file_content_or_link_for(mock_client, "https://x/y/big.pdf")
+
+    assert isinstance(result, DownloadLinkResult)
+    assert result.url == "https://x/y/big.pdf?token=TOK123"
+    assert result.warning
+    resp.iter_content.assert_not_called()  # bailed before streaming any bytes
+
+
+def test_fetch_content_or_link_large_body_with_no_content_length_falls_back(mock_client, mocker):
+    # Server doesn't report content-length, but the body turns out too big.
+    big_chunk = b"x" * (3 * 1024 * 1024)  # 3MB chunks, 2 of them exceeds the 5MB threshold
+    resp = _mock_resp(mocker, {}, [big_chunk, big_chunk])
+    mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+
+    result = fetch_course_file_content_or_link_for(mock_client, "https://x/y/big.pdf")
+
+    assert isinstance(result, DownloadLinkResult)
+
+
+def test_fetch_content_or_link_never_touches_disk(mock_client, mocker):
+    # Structural guard: this function takes no save_path and should never
+    # open a file on disk, for either the inline or the fallback outcome.
+    resp = _mock_resp(
+        mocker, {"content-length": "5", "content-type": "application/pdf"}, [b"hello"]
+    )
+    mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+    open_mock = mocker.patch("builtins.open")
+
+    fetch_course_file_content_or_link_for(mock_client, "https://x/y/file.pdf")
+
+    open_mock.assert_not_called()
+
+
+def test_fetch_content_or_link_respects_custom_max_inline_mb(mock_client, mocker):
+    resp = _mock_resp(mocker, {"content-length": str(2 * 1024 * 1024)}, [])
+    mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+
+    # 2MB file, but max_inline_mb=1 -- should fall back even though it'd
+    # normally fit under the 5MB default.
+    result = fetch_course_file_content_or_link_for(
+        mock_client, "https://x/y/file.pdf", max_inline_mb=1
+    )
+
+    assert isinstance(result, DownloadLinkResult)
