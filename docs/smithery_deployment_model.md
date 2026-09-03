@@ -301,6 +301,50 @@ no real large file exists to test the fallback's actual real-world
 reliability end-to-end. Revisit if/when a real large course file or a user
 bug report surfaces post-deployment (tracked in #60).
 
+## Addendum (issue #60 — root cause of the bulk-download "hang")
+
+An external code review of the open PR stack (#53/#58/#61) flagged that
+`RateLimitError` (raised by `security.py`'s `RateLimiter.check()`) is never
+caught anywhere in `src/` -- a plausible cause of the bulk multi-file
+download hang observed while testing #56. Following that up uncovered a
+bigger, more fundamental issue underneath it.
+
+**Root cause:** the installed MCP SDK (`mcp.server.mcpserver.tools.base`)
+treats any tool-handler exception that is not one of its own `ToolError`
+(or `ResourceError`, `MCPError`) types as an *unanticipated crash* -- and
+for a crash, **it discards the exception's own message** and replaces it
+with a generic `"Error executing tool <name>"` before it ever reaches the
+model. `PlatoMCPError` (the base class for every error this project raises
+deliberately -- `AuthError`, `MoodleAPIError`, `RateLimitError`,
+`DownloadRejectedError`, `ScrapeError`, `WriteConfirmationError`) was a
+plain `Exception` subclass, so **every one of this project's carefully
+written, security-reviewed error messages was being silently discarded**,
+not just `RateLimitError`'s. Confirmed live, before and after the fix,
+against a running container -- calling `download_course_file` with a
+disallowed extension:
+
+- Before: `"Error executing tool download_course_file"` (no indication why)
+- After: `"Error executing tool download_course_file: disallowed file extension: '.exe'"`
+
+**Fix:** `PlatoMCPError` now inherits from the SDK's `ToolError` instead of
+plain `Exception` (`errors.py`) -- a one-line base-class change that fixes
+every subclass at once, rather than adding a try/except around each
+individual tool function. This directly addresses the bulk-download hang:
+a `RateLimitError` hit partway through a multi-file request now reaches the
+model as "PLATO request rate limit exceeded for this session -- try again
+shortly" instead of a content-free crash notice, so the model (and by
+extension the user) can actually tell what happened and back off instead
+of retrying blind.
+
+Not changed by this fix: the `RateLimiter` defaults themselves (10 tokens
+per session, 0.5/sec refill) remain unchanged -- they may still be
+stricter than ideal for a legitimate "download several files from one
+course" request, but that's a separate tuning question from whether the
+failure is at least legible when it happens. The `DownloadLinkResult`
+sandbox-egress hypothesis for the >5MB case (see the prior addendum) is
+still unverified and is no longer believed to be the primary cause of the
+observed hang.
+
 ## Sources
 
 - https://smithery.ai/docs/build/deployments/custom-container
