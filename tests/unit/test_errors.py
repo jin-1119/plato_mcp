@@ -39,7 +39,7 @@ def test_all_plato_error_subclasses_are_tool_errors():
         WriteConfirmationError,
         DownloadRejectedError,
     ):
-        assert issubclass(exc_cls, ToolError), f"{exc_cls.__name__} must reach the model as ToolError"
+        assert issubclass(exc_cls, ToolError), f"{exc_cls.__name__} must reach model as ToolError"
 
 
 def test_rate_limit_error_message_is_preserved_as_a_plain_exception():
