@@ -8,7 +8,7 @@ way, no scraping needed (see PLATO_MCP_사전조사.md).
 
 import base64
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests
 from pydantic import BaseModel
@@ -76,11 +76,14 @@ INLINE_BASE64_MAX_MB = 5
 # the URL/token used to get them) reach the client.
 TOKEN_IN_URL_WARNING = (
     "This file was too large to send inline, so this URL has a live PLATO "
-    "access token embedded in it instead. Do not share this link or a chat "
-    "transcript containing it -- whoever holds it can use it to download "
-    "this file until the token is invalidated. Its exact scope (limited to "
-    "this file vs. broader PLATO API access) has not yet been independently "
-    "verified."
+    "access token embedded in it instead. This token is NOT scoped to this "
+    "file -- confirmed by live testing (issue #56) that the same token "
+    "authenticates arbitrary Moodle webservice calls (e.g. "
+    "core_webservice_get_site_info), returning the account's real name, "
+    "student ID, and full list of callable API functions. Do not share this "
+    "link or a chat transcript containing it -- whoever holds it gets "
+    "broad account-level API access, not just this one file, until the "
+    "token is invalidated."
 )
 
 
@@ -89,7 +92,7 @@ def _extension_of(file_url: str) -> str:
 
 
 def _filename_of(file_url: str) -> str:
-    return Path(urlparse(file_url).path).name
+    return unquote(Path(urlparse(file_url).path).name)
 
 
 def build_course_file_download_url(client: MoodleClient, file_url: str) -> DownloadLinkResult:

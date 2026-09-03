@@ -159,6 +159,98 @@ excludes it too as a second layer, so no credentials should end up in any
 image layer -- but that should still get an actual `docker build` +
 `docker history` check before #32 (public listing).
 
+## Addendum (issue #56 live verification)
+
+Docker was not installed when the #30 addendum above was written; it is now.
+Ran the full #56 acceptance criteria against Docker Desktop on this machine.
+
+**Confirmed working:**
+
+- `docker build` against the existing `Dockerfile` succeeds unmodified.
+- `docker run -p 8081:8081` with no credentials in the environment starts
+  `MCP_TRANSPORT=streamable-http` and listens on 8081, matching the
+  no-Docker verification already done for #30.
+- `docker history --no-trunc` on the built image shows no `.env` file and no
+  credential-bearing `ENV`/`ARG` layers -- only `pyproject.toml`, `README.md`,
+  and `src/` are copied in, consistent with `.dockerignore`.
+- End-to-end with real credentials: ran the container, tunnelled port 8081
+  through ngrok to get a public HTTPS URL, and hit `/mcp?pnu_id=...&pnu_password=...`
+  (the real Smithery container config-delivery shape) with curl -- got a real
+  PLATO login and real course list back, confirming the query-param ->
+  header injection path (`QueryParamsToHeadersMiddleware`) works over an
+  actual public URL, not just localhost.
+- Connected that same ngrok URL to Claude.ai as a custom connector (Settings
+  → Connectors → Add custom connector, auth: None, credentials embedded in
+  the connector URL's query string since there's no Smithery-style session
+  config form outside of an actual Smithery deployment). Tools were listed
+  correctly (14 tools, including `download_course_file`).
+- **The core #55 question is answered: yes**, Claude.ai does decode
+  `DownloadContentResult.content_base64` and present it as an actual
+  downloadable file, matching the Google Drive MCP connector's behavior --
+  verified against a real course file ("Ch 1.pdf", 1,415,812 bytes, well
+  under the 5MB inline threshold). The mechanism: Claude's code-execution
+  environment decoded the base64 by referencing the prior tool result object
+  directly (e.g. `outer['content_base64']`) inside a Python snippet, rather
+  than the model re-emitting the base64 text itself as output tokens -- this
+  matters because a first attempt that appeared to re-type/echo the base64
+  through a shell command stalled for several minutes before being
+  cancelled, while the direct-reference approach completed normally. Not
+  fully root-caused (Claude's code-execution internals aren't observable
+  from here), but the working path is confirmed reproducible.
+
+**Found and fixed during this testing** (unit tests didn't catch it):
+`files.py`'s `_filename_of()` returned the raw, percent-encoded path segment
+from the file URL (e.g. `Lecture1%20-%20Macro%282026%29.pdf` instead of
+`Lecture1 - Macro(2026).pdf`), since Moodle's `fileurl` values are already
+URL-encoded and `Path(urlparse(...).path).name` doesn't decode that. Fixed
+with `urllib.parse.unquote()`; regression test added
+(`test_build_download_url_decodes_percent_encoded_filename`). This filename
+is exactly what Claude.ai's code-execution step writes the decoded file out
+as, so an un-decoded name would have shipped as the visible download name.
+
+**wstoken scope check result (was previously "not yet independently
+verified" in the `DownloadLinkResult.warning` text) -- now confirmed:** the
+token embedded in the URL-fallback path is **not scoped to the single
+file**. Acquired a real token via `MoodleClient.get_wstoken()` and called an
+unrelated webservice function, `core_webservice_get_site_info`, directly
+with it -- it succeeded and returned the account's real name, student ID,
+`userid`, and the full list of webservice functions the account's service is
+allowed to call. In other words, this token is the same general-purpose
+Moodle API credential used for every other tool in this server, not a
+narrow single-file download grant. `TOKEN_IN_URL_WARNING` in `files.py` has
+been updated to state this plainly instead of calling it unverified.
+
+**Not verified — deferred, no test data available:** the `DownloadLinkResult`
+fallback path itself (files >5MB) was not exercised against a real file,
+because no file that large exists in the test account's actual enrolled
+courses (real course PDFs observed range 100KB-1.5MB). Separately, while
+manually testing a *bulk* "download every file in every course" request
+through the Claude.ai connector, the response appeared to hang indefinitely
+-- not reproduced against a single file, so the root cause isn't confirmed,
+but two candidate causes were identified by code review (no bug found in
+`files.py`/`downloads.py` itself; the fallback-on-size-exceeded logic
+returns immediately once the threshold is crossed, whether from a
+`content-length` header or from the streaming byte-count check):
+1. `security.py`'s per-session `RateLimiter` (10-token bucket, 0.5
+   tokens/sec refill) would throttle quickly under a bulk multi-file
+   request (one call per course listing plus one per file), and repeated
+   `RateLimitError` responses being retried by the client could look like a
+   hang rather than a fast, clear failure.
+2. `DownloadLinkResult.url` is designed to be opened by the *end user's own
+   browser*, not fetched by the MCP client itself -- if Claude.ai's
+   code-execution sandbox has no general internet egress (plausible; it did
+   not need any for the inline-base64 path since no further network call
+   was required there), a model attempting to fetch that URL itself from
+   within the sandbox would fail or hang with no signal reaching this
+   server, since the server's job (returning the link) is already complete
+   by that point.
+
+This is being left as a known, documented gap rather than force-tested with
+an artificially-lowered `INLINE_BASE64_MAX_MB` against a real course, since
+no real large file exists to test the fallback's actual real-world
+reliability end-to-end. Revisit if/when a real large course file or a user
+bug report surfaces post-deployment (tracked in #60).
+
 ## Sources
 
 - https://smithery.ai/docs/build/deployments/custom-container
