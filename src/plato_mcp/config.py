@@ -49,8 +49,9 @@ def _load_from_headers(headers: Mapping[str, str]) -> PlatoConfig | None:
         # still unnecessary user-input reflection in an error) into the
         # response (issue #63 review).
         bad_fields = ", ".join(sorted({e["loc"][0] for e in exc.errors() if e["loc"]}))
+        bad_fields = bad_fields or "pnu_id/pnu_password"
         raise RuntimeError(
-            f"Invalid config supplied via request headers (check: {bad_fields or 'pnu_id/pnu_password'})"
+            f"Invalid config supplied via request headers (check: {bad_fields})"
         ) from None
 
 
