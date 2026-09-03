@@ -134,6 +134,16 @@ def test_build_download_url_appends_token_with_no_existing_query(mock_client):
     assert result.warning  # non-empty, response-level (not just docstring) warning
 
 
+def test_build_download_url_decodes_percent_encoded_filename(mock_client):
+    # Found via live testing against a real PLATO course (issue #56): Moodle
+    # percent-encodes spaces/parens in fileurl, and filename must be decoded
+    # back for the name Claude.ai eventually saves the file under to be sane.
+    result = build_course_file_download_url(
+        mock_client, "https://x/y/Lecture1%20-%20Macro%282026%29.pdf"
+    )
+    assert result.filename == "Lecture1 - Macro(2026).pdf"
+
+
 def test_build_download_url_appends_token_with_existing_query(mock_client):
     result = build_course_file_download_url(
         mock_client, "https://x/y/file.pdf?forcedownload=1"
