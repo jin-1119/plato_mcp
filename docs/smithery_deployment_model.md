@@ -345,6 +345,43 @@ sandbox-egress hypothesis for the >5MB case (see the prior addendum) is
 still unverified and is no longer believed to be the primary cause of the
 observed hang.
 
+## Addendum (issue #63 — HTTP-transport hardening from external code review)
+
+An external code review of the open PR stack surfaced a critical finding
+missed by everyone up to that point: `server.py`'s `run_http()` started
+uvicorn with its default access log enabled, and uvicorn's default access
+log format includes the full request line -- method, path, **and query
+string**. Since Smithery's container config-delivery model requires
+`pnu_id`/`pnu_password` to arrive as query parameters, **every single
+request was logging the PLATO password in plaintext to this server's own
+stdout**, independent of any downstream reverse proxy. Same class of bug
+as #34 (credential-in-URL leak, fixed there by switching GET->POST), but
+in a code path #34 predates and never covered -- POST isn't an option here
+since query-param delivery is Smithery's platform contract, not something
+this server controls.
+
+**Verified live, before and after, against a rebuilt container hitting the
+real `/mcp?pnu_id=...&pnu_password=...` endpoint:**
+
+- Before: `INFO: 172.17.0.1:57636 - "POST /mcp?pnu_id=202443155&pnu_password=pnu202443155%21 HTTP/1.1" 200 OK`
+- After: `POST /mcp -> 200`
+
+**Fix:** `uvicorn.run(..., access_log=False)` plus a new
+`RedactedAccessLogMiddleware` (`asgi.py`) that logs method, path (query
+string stripped), and status only.
+
+**Also fixed from the same review pass:**
+
+- `QueryParamsToHeadersMiddleware`'s `parse_qsl(query_string.decode("utf-8"))`
+  previously raised an unhandled `UnicodeDecodeError` on a non-UTF-8 query
+  string, crashing the request. Now degrades to "no config params found."
+- `config.py`'s `_load_from_headers` error message no longer interpolates
+  pydantic's raw `ValidationError` text (which echoes back the invalid
+  input value) -- now names only the offending field(s).
+- `CORSMiddleware(allow_origins=["*"])` is intentional and now documented
+  inline: safe because Smithery's gateway is the only thing that talks to
+  this container directly; revisit if ever deployed standalone.
+
 ## Sources
 
 - https://smithery.ai/docs/build/deployments/custom-container
