@@ -67,7 +67,7 @@ class DownloadContentResult(BaseModel):
 # against a real PLATO course) while keeping base64-inflated payloads out of
 # the conversation context for anything large. Files above this size fall
 # back to DownloadLinkResult; true chunked download (mirroring Drive's
-# DownloadFileChunk) is explicitly out of scope for this pass -- see #56.
+# DownloadFileChunk) is explicitly out of scope for this pass -- see #59.
 INLINE_BASE64_MAX_MB = 5
 
 # Only surfaced on the DownloadLinkResult fallback now -- the common case

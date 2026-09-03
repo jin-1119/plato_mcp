@@ -159,6 +159,56 @@ excludes it too as a second layer, so no credentials should end up in any
 image layer -- but that should still get an actual `docker build` +
 `docker history` check before #32 (public listing).
 
+## Addendum (issue #55 redesign — remote file download)
+
+**The gap.** `download_course_file` (issue #28) was written with only the
+stdio/local case in mind: it saves the fetched file to a `save_path` on
+disk and returns that path. Under the container runtime described above,
+the server's disk is a Smithery-managed container's ephemeral filesystem --
+not reachable by the end user at all. Discovered while manually testing the
+finished tool by asking "would this same tool call work from Claude.ai
+web/app chat, not just Claude Code/Desktop?" -- it would not: the file gets
+saved somewhere the user can never retrieve it, silently succeeding by the
+tool's own accounting while doing nothing useful for the user. Tracked as
+issue #54, decomposed into #55 (this fix), #56 (live verification), #57
+(this document), #59 (deferred chunked delivery).
+
+**Design options considered for #55, and why the final shape won:**
+
+1. **Direct authenticated URL only** (`DownloadLinkResult`-only design, the
+   first version actually implemented and shipped in an earlier revision of
+   this PR). The server builds `{fileurl}?token={wstoken}` and returns just
+   that URL for the user's own browser to open. Simple, and avoids the
+   server ever reading the file's bytes. Rejected as the *only* path once a
+   real Claude.ai session was observed decoding a different MCP server's
+   (Google Drive's) inline base64 tool response and presenting it as an
+   actual downloadable file via its code-execution/file-creation feature --
+   a strictly better experience than a raw link for the common case of a
+   small course PDF, and one that never exposes a live PLATO access token
+   to the user or chat transcript at all.
+2. **A stateful server-side proxy/redirect endpoint** (e.g. the MCP server
+   exposes its own `GET /download/{id}` route that streams the file with
+   its own short-lived signed link, instead of a raw PLATO token). Rejected
+   for this pass as disproportionate complexity for the common case: it
+   requires the container to serve plain HTTP outside of MCP tool
+   semantics, invent and store its own short-lived tokens, and handle
+   expiry/cleanup -- all to solve a problem (large files) that, per real
+   course material observed so far (100KB-1.5MB), barely occurs. Revisit
+   only if #59's real chunked-delivery design becomes necessary.
+3. **Base64-inline for small files, URL fallback for large files** (the
+   shipped design, `DownloadContentResult` for files up to
+   `INLINE_BASE64_MAX_MB` and `DownloadLinkResult` above it). Chosen
+   because it gets the common case (small course PDFs) to the "just works,
+   presented as a real file" experience with zero token exposure, while
+   still handling the rare large-file case without the complexity of
+   option 2. The 5MB threshold mirrors Google's own Drive MCP tool's
+   inline/reference cutoff.
+
+Live verification of this design (does Claude.ai actually decode
+`DownloadContentResult` the way the Drive connector did, is the
+`DownloadLinkResult` token actually as broadly-scoped as suspected, etc.)
+is the subject of issue #56 -- see the addendum below for those results.
+
 ## Addendum (issue #56 live verification)
 
 Docker was not installed when the #30 addendum above was written; it is now.
