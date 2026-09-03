@@ -3,7 +3,12 @@
 import pytest
 
 from plato_mcp.errors import PlatoMCPError
-from plato_mcp.files import DownloadRejectedError, download_course_file_for
+from plato_mcp.files import (
+    DownloadLinkResult,
+    DownloadRejectedError,
+    build_course_file_download_url,
+    download_course_file_for,
+)
 
 
 @pytest.fixture
@@ -98,3 +103,58 @@ def test_download_rejects_mid_stream_when_no_content_length(mock_client, tmp_pat
 
 def test_download_rejected_error_is_plato_mcp_error():
     assert issubclass(DownloadRejectedError, PlatoMCPError)
+
+
+# -- build_course_file_download_url (issue #55: remote-transport delivery) --
+# No save_path parameter exists on this function at all, so it structurally
+# cannot touch disk -- that's the regression guard, not an assertion on mocks.
+
+
+def test_build_download_url_rejects_disallowed_extension(mock_client):
+    with pytest.raises(DownloadRejectedError):
+        build_course_file_download_url(mock_client, "https://x/y/malware.exe")
+
+
+def test_build_download_url_rejects_before_touching_network(mock_client, mocker):
+    get = mocker.patch("plato_mcp.files.requests.get")
+    with pytest.raises(DownloadRejectedError):
+        build_course_file_download_url(mock_client, "https://x/y/bad.sh")
+    get.assert_not_called()
+
+
+def test_build_download_url_appends_token_with_no_existing_query(mock_client):
+    result = build_course_file_download_url(mock_client, "https://x/y/file.pdf")
+    assert isinstance(result, DownloadLinkResult)
+    assert result.url == "https://x/y/file.pdf?token=TOK123"
+    assert result.filename == "file.pdf"
+    assert result.warning  # non-empty, response-level (not just docstring) warning
+
+
+def test_build_download_url_appends_token_with_existing_query(mock_client):
+    result = build_course_file_download_url(
+        mock_client, "https://x/y/file.pdf?forcedownload=1"
+    )
+    assert result.url == "https://x/y/file.pdf?forcedownload=1&token=TOK123"
+
+
+def test_build_download_url_never_touches_network(mock_client, mocker):
+    get = mocker.patch("plato_mcp.files.requests.get")
+    build_course_file_download_url(mock_client, "https://x/y/file.pdf")
+    get.assert_not_called()
+
+
+def test_download_course_file_for_reuses_build_download_url(mock_client, tmp_path, mocker):
+    # download_course_file_for (the stdio path) shares the same extension
+    # check + URL-building logic instead of duplicating it.
+    resp = mocker.MagicMock()
+    resp.headers = {"content-length": "5", "content-type": "application/pdf"}
+    resp.iter_content.return_value = [b"hello"]
+    resp.raise_for_status.return_value = None
+    resp.__enter__.return_value = resp
+    resp.__exit__.return_value = False
+    mock_get = mocker.patch("plato_mcp.files.requests.get", return_value=resp)
+
+    download_course_file_for(mock_client, "https://x/y/file.pdf", str(tmp_path / "o.pdf"))
+
+    called_url = mock_get.call_args.args[0]
+    assert called_url == "https://x/y/file.pdf?token=TOK123"

@@ -33,13 +33,46 @@ class DownloadResult(BaseModel):
     mimetype: str | None = None
 
 
+class DownloadLinkResult(BaseModel):
+    """Returned instead of DownloadResult under streamable-http transport
+    (issue #55) -- the MCP server has no local disk reachable by the end
+    user there, so this hands back a direct authenticated URL instead of
+    fetching the file server-side. See docs/smithery_deployment_model.md."""
+
+    url: str
+    filename: str
+    warning: str
+
+
+# Surfaced both in the tool docstring and on DownloadLinkResult itself --
+# the response-level copy is what's most likely to reach the end user, since
+# it's what the model sees in the actual tool result, not just its own
+# instructions (see issue #55 plan). Token scope (this file only vs. wider
+# webservice access) is intentionally left unverified here -- issue #56 is
+# expected to confirm it and this string should be tightened once it does.
+TOKEN_IN_URL_WARNING = (
+    "This URL has a live PLATO access token embedded in it. Do not share "
+    "this link or a chat transcript containing it -- whoever holds it can "
+    "use it to download this file until the token is invalidated. Its "
+    "exact scope (limited to this file vs. broader PLATO API access) has "
+    "not yet been independently verified."
+)
+
+
 def _extension_of(file_url: str) -> str:
     return Path(urlparse(file_url).path).suffix.lower()
 
 
-def download_course_file_for(
-    client: MoodleClient, file_url: str, save_path: str, max_download_mb: int = 20
-) -> DownloadResult:
+def _filename_of(file_url: str) -> str:
+    return Path(urlparse(file_url).path).name
+
+
+def build_course_file_download_url(client: MoodleClient, file_url: str) -> DownloadLinkResult:
+    """Build a direct, authenticated download URL for a course file without
+    fetching it server-side (no network beyond what get_wstoken() needs for
+    login, no disk I/O at all). Used under streamable-http transport, where
+    a server-side save_path would land on the container's ephemeral disk
+    and never reach the actual end user (issue #55)."""
     ext = _extension_of(file_url)
     if ext not in ALLOWED_EXTENSIONS:
         raise DownloadRejectedError(f"disallowed file extension: {ext!r}")
@@ -47,6 +80,17 @@ def download_course_file_for(
     token = client.get_wstoken()
     separator = "&" if "?" in file_url else "?"
     download_url = f"{file_url}{separator}token={token}"
+
+    return DownloadLinkResult(
+        url=download_url, filename=_filename_of(file_url), warning=TOKEN_IN_URL_WARNING
+    )
+
+
+def download_course_file_for(
+    client: MoodleClient, file_url: str, save_path: str, max_download_mb: int = 20
+) -> DownloadResult:
+    link = build_course_file_download_url(client, file_url)
+    download_url = link.url
 
     max_bytes = max_download_mb * 1024 * 1024
     dest = Path(save_path)
