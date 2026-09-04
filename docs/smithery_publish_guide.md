@@ -1,9 +1,10 @@
 # plato-mcp를 Smithery에 공개 배포하기 — 비전공자용 단계별 가이드
 
 이 문서는 [#67](https://github.com/jin-1119/plato_mcp/issues/67) 작업(Smithery
-배포 모델 변경 대응)을 실제로 따라 하기 위한 가이드입니다. 프로그래밍을 잘 몰라도
-그대로 따라 할 수 있도록, **터미널 명령어 없이 브라우저 화면에서 클릭만으로**
-진행하는 방법을 적었습니다.
+배포 모델 변경 대응)을 실제로 따라 하기 위한 가이드입니다. 각 단계마다 **브라우저
+화면에서 클릭하는 방법(GUI)**과 **터미널에 붙여넣는 방법(CLI)**을 둘 다 적어뒀으니,
+편한 쪽으로 하시면 됩니다 — 화면에서 버튼을 못 찾겠으면 그 아래 CLI 명령어를
+그대로 복사해서 터미널에 붙여넣으세요.
 
 > Smithery 관련 화면/문구(3단계)는 2026-09-04 기준으로 실제 로그인해서 직접
 > 확인한 내용입니다. Google Cloud Console 화면(1단계)은 이번엔 브라우저로
@@ -30,29 +31,57 @@
 
 ---
 
-## 1단계: Google Cloud Run에 배포하기 (콘솔 화면에서, 명령어 없이)
+## 1단계: Google Cloud Run에 배포하기
 
 Google Cloud Run은 "Dockerfile 하나만 있으면 인터넷 주소를 만들어주는" 구글의
 서비스입니다. 이 프로젝트는 이미 `Dockerfile`이 준비되어 있어서 **코드를 하나도
-고칠 필요 없이** 그대로 올릴 수 있습니다. 아래는 전부 브라우저에서 클릭만으로
-진행하는 방법입니다 (터미널/명령어 불필요).
+고칠 필요 없이** 그대로 올릴 수 있습니다.
 
 > **계정 안내**: 새 GCP 프로젝트를 `w72575535@gmail.com` 계정으로 만드셨다고
-> 하셨으니, 아래 모든 단계는 그 계정으로 로그인한 상태에서 진행하세요. 브라우저
-> 오른쪽 위 동그란 프로필 아이콘을 클릭하면 로그인된 구글 계정을 바꾸거나
-> 추가할 수 있습니다.
+> 하셨으니, 브라우저는 그 계정으로 로그인한 상태에서 진행하세요 (오른쪽 위
+> 프로필 아이콘 → 계정 전환/추가). CLI(터미널)로 진행할 경우 아래 1-0을 먼저
+> 하세요 — 이 컴퓨터의 `gcloud`는 현재 다른 계정(`jinyeonggim844@gmail.com`)으로
+> 로그인되어 있습니다.
+
+### 1-0. (CLI만 해당) 터미널에서 올바른 계정/프로젝트로 전환
+
+```bash
+gcloud auth login
+# 브라우저가 뜨면 w72575535@gmail.com으로 로그인
+
+gcloud projects list
+# 방금 만든 프로젝트의 PROJECT_ID를 확인
+
+gcloud config set project <PROJECT_ID>
+```
+
+이후 CLI 명령어들은 전부 이 계정/프로젝트 기준으로 실행됩니다. (GUI로만 할
+거면 이 단계는 건너뛰어도 됩니다.)
 
 ### 1-1. 프로젝트 선택 확인
+
+**GUI**
 
 1. https://console.cloud.google.com 접속 (`w72575535@gmail.com`으로 로그인).
 2. 화면 맨 위, 구글 클라우드 로고 옆에 있는 **프로젝트 선택 드롭다운**을
    클릭해서, 방금 만든 프로젝트가 선택되어 있는지 확인합니다. 아니라면
    목록에서 그 프로젝트를 선택하세요.
 
+**CLI**
+
+```bash
+gcloud config get-value project
+# 방금 만든 프로젝트 ID가 나오는지 확인. 아니면:
+gcloud config set project <PROJECT_ID>
+```
+
 ### 1-2. (본인이 직접) 결제 계정이 연결돼 있는지 확인
 
 > ⚠️ **이 부분은 Claude가 대신 할 수 없습니다.** 결제 카드 등록은 보안상 본인이
-> 직접 해야 하는 영역입니다.
+> 직접 해야 하는 영역입니다 — GUI든 CLI든 카드 등록 자체는 브라우저에서
+> 진행해야 합니다.
+
+**GUI**
 
 1. 왼쪽 위 **≡ (메뉴)** 아이콘 클릭 → **결제(Billing)** 메뉴로 이동
    (또는 바로 https://console.cloud.google.com/billing/linkedaccount 접속).
@@ -63,10 +92,20 @@ Google Cloud Run은 "Dockerfile 하나만 있으면 인터넷 주소를 만들�
    충분히 돌아가므로 **실제로 청구될 가능성은 거의 없습니다.** 다만 카드
    등록 자체는 구글 정책상 필수입니다.
 
+**CLI (확인/연결만 — 카드 등록은 여전히 브라우저에서)**
+
+```bash
+gcloud billing accounts list
+# 결제 계정이 있으면 ACCOUNT_ID가 나옵니다. 없으면 위 GUI 절차로 먼저 만드세요.
+
+gcloud billing projects describe <PROJECT_ID> --format="value(billingEnabled)"
+# False가 나오면 아래로 연결:
+gcloud billing projects link <PROJECT_ID> --billing-account=<ACCOUNT_ID>
+```
+
 ### 1-3. 필요한 API 사용 설정
 
-Cloud Run 서비스를 만드는 화면에서 아래 API들이 꺼져 있으면 자동으로 "사용
-설정" 버튼이 뜨기도 하지만, 미리 켜두면 더 매끄럽습니다:
+**GUI**
 
 1. 화면 위쪽 검색창(🔍)에 `Cloud Run API`를 입력 → 나오는 결과 클릭 →
    **사용 설정(Enable)** 버튼 클릭. 이미 켜져 있으면 이 버튼 대신 "관리"가
@@ -74,7 +113,15 @@ Cloud Run 서비스를 만드는 화면에서 아래 API들이 꺼져 있으면 
 2. 같은 방식으로 `Cloud Build API`, `Artifact Registry API`도 검색해서
    각각 사용 설정합니다.
 
-### 1-4. Cloud Run 서비스 만들기
+**CLI**
+
+```bash
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+```
+
+### 1-4. Cloud Run 서비스 만들기 (실제 배포)
+
+**GUI**
 
 1. 검색창에 `Cloud Run`을 입력 → **Cloud Run** 클릭.
 2. **서비스 만들기(Create Service)** 버튼 클릭.
@@ -108,7 +155,27 @@ Cloud Run 서비스를 만드는 화면에서 아래 API들이 꺼져 있으면 
     `https://plato-mcp-xxxxx-xx.a.run.app`)이 표시됩니다.
     **이 주소를 복사해두세요 — 3단계에서 씁니다.**
 
-### 1-5. 배포가 실제로 됐는지 확인 (브라우저로)
+**CLI**
+
+저장소 루트(`D:\1.gemini\PLATO_MCP`)에서 실행:
+
+```bash
+gcloud run deploy plato-mcp \
+  --source . \
+  --region asia-northeast3 \
+  --allow-unauthenticated \
+  --set-env-vars MCP_TRANSPORT=streamable-http
+```
+
+- GitHub 연결 없이 지금 이 폴더에 있는 코드를 바로 올려서 빌드합니다 (Cloud
+  Build를 자동으로 사용). 몇 분 정도 걸리며, 중간에 "이 소스를 업로드할까요?"
+  같은 확인 프롬프트가 뜨면 `y`를 입력하세요.
+- 끝나면 `Service URL: https://plato-mcp-xxxxx-xx.a.run.app` 같은 줄이
+  출력됩니다. **이 주소를 복사해두세요 — 3단계에서 씁니다.**
+
+### 1-5. 배포가 실제로 됐는지 확인
+
+**GUI (브라우저)**
 
 방금 복사한 주소 뒤에 `/mcp`를 붙여서 새 브라우저 탭에 그대로 입력해보세요
 (예: `https://plato-mcp-xxxxx-xx.a.run.app/mcp`). MCP 프로토콜은 원래
@@ -118,10 +185,29 @@ Cloud Run 서비스를 만드는 화면에서 아래 API들이 꺼져 있으면 
 오히려 성공 신호입니다. 반대로 페이지가 아예 안 뜨거나 "사이트에 연결할 수
 없음" 같은 에러가 나오면 배포에 문제가 있는 것이니 아래 1-6을 확인하세요.
 
+**CLI**
+
+```bash
+curl -i https://<복사해둔 주소>/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}'
+```
+
+에러 없이 JSON 응답(`serverInfo`에 `plato-mcp`가 보이는 응답)이 오면 성공입니다.
+
 ### 1-6. 문제가 있을 때 로그 보기
 
+**GUI**
+
 Cloud Run 서비스 상세 페이지에서 위쪽 탭 중 **"로그(Logs)"**를 클릭하면
-최근 요청/에러 로그를 볼 수 있습니다. 여기서 원인을 확인하세요.
+최근 요청/에러 로그를 볼 수 있습니다.
+
+**CLI**
+
+```bash
+gcloud run services logs read plato-mcp --region asia-northeast3 --limit 20
+```
 
 ---
 
@@ -137,9 +223,10 @@ Cloud Run 서비스 상세 페이지에서 위쪽 탭 중 **"로그(Logs)"**를 
 1. 1-5에서 확인차 접속했던 것처럼, `/mcp` 뒤에 아무 쿼리 파라미터나 붙여서
    (예: `?pnu_id=test&pnu_password=test123`) 한 번 접속해봅니다 — 테스트용
    가짜 값이니 안전합니다.
-2. Cloud Run 서비스 페이지 → **"로그(Logs)"** 탭에서 방금 그 요청을 찾아
-   봅니다. 요청 URL이 로그에 **쿼리 파라미터까지 그대로** 찍혀 있는지
-   확인하세요.
+2. 방금 그 요청이 로그에 어떻게 찍혔는지 확인합니다:
+   - **GUI**: Cloud Run 서비스 페이지 → **"로그(Logs)"** 탭.
+   - **CLI**: `gcloud run services logs read plato-mcp --region asia-northeast3 --limit 20`
+   요청 URL이 로그에 **쿼리 파라미터까지 그대로** 찍혀 있는지 확인하세요.
 3. 만약 나중에 실제 `pnu_password`가 포함된 요청의 전체 URL이 이 로그에
    그대로 찍힌다면, Cloud Run의 로그 수준 설정을 낮추거나 별도 이슈로
    추적해야 합니다 — 지금 당장 막을 방법이 마땅치 않다면 최소한 **알고
