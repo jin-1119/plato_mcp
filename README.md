@@ -20,9 +20,11 @@
 > [개인정보 안내](#개인정보-안내)를 반드시 읽어 주세요.
 
 **일반 사용자용 설치 방법은 아직 없습니다.** Smithery 마켓플레이스 공개 배포 작업이
-진행 중입니다 ([#67](https://github.com/jin-1119/plato_mcp/issues/67)). 지금 당장
-코드를 받아 직접 실행/기여하고 싶다면 아래 [개발 환경 설정](#개발-환경-설정-기여자용)을,
-자격증명이 어떻게 다뤄지는지는 [`SECURITY.md`](./SECURITY.md)를 참고하세요.
+진행 중입니다 ([#67](https://github.com/jin-1119/plato_mcp/issues/67), 직접 배포해
+보고 싶다면 [`docs/smithery_publish_guide.md`](./docs/smithery_publish_guide.md)의
+비전공자용 단계별 가이드 참고). 지금 당장 코드를 받아 직접 실행/기여하고 싶다면
+아래 [개발 환경 설정](#개발-환경-설정-기여자용)을, 자격증명이 어떻게 다뤄지는지는
+[`SECURITY.md`](./SECURITY.md)를 참고하세요.
 
 ---
 
