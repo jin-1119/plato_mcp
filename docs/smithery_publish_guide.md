@@ -46,33 +46,52 @@
 등록 없이** 바로 쓸 수 있습니다. 이 프로젝트는 이미 `Dockerfile`이 준비되어
 있어서 **코드를 하나도 고칠 필요 없이** 그대로 올릴 수 있습니다.
 
+> 아래는 2026-09-04에 Claude in Chrome으로 실제 화면을 열어서 클릭해보며
+> 확인한 최신 내용입니다 (이전 버전 가이드의 단계와 실제 화면이 달라서
+> 다시 확인했습니다).
+
 ### 1-1. Render 가입
 
 1. https://render.com 접속 → **Get Started** (또는 우측 상단 **Sign Up**).
-2. **GitHub로 가입**하는 걸 추천합니다 (아래에서 저장소 연결이 자동으로
-   더 쉬워집니다). GitHub 계정으로 로그인 승인.
+2. **GitHub로 가입**하는 걸 추천합니다. GitHub 계정으로 로그인 승인.
+   - ⚠️ **주의**: 이때 Render에 연결하는 GitHub 계정이 `jin-1119`(이
+     저장소 소유자)일 필요는 없습니다 — 아래 1-2에서 "Public Git
+     Repository" 방식을 쓰면 GitHub 계정 연결/권한 승인 없이 그냥 공개
+     저장소 주소만 입력하면 됩니다. 이미 다른 GitHub 계정으로 가입해서
+     저장소 목록에 `plato_mcp`가 안 보여도 문제 없습니다.
 
 ### 1-2. 새 Web Service 만들기
 
-1. 대시보드에서 **New +** 버튼 클릭 → **Web Service** 선택.
-2. **Build and deploy from a Git repository** 선택 → **Next**.
-3. 저장소 목록에서 **`jin-1119/plato_mcp`**를 찾아 **Connect**.
-   - 목록에 안 보이면 **Configure account**를 눌러 Render가 그 저장소에
-     접근할 수 있게 GitHub 쪽에서 권한을 승인해주세요.
-4. 설정 화면에서:
-   - **Name**: `plato-mcp`
-   - **Region**: `Singapore` (한국에서 가장 가까운 지역)
-   - **Branch**: `main`
-   - **Language/Runtime**: **Docker** (저장소에 `Dockerfile`이 있으니
-     Render가 자동으로 Docker로 잡아줄 것입니다. 안 잡히면 직접 Docker로
-     바꿔주세요.)
-   - **Instance Type**: **Free** 선택.
-5. **Environment Variables** 섹션에서 **Add Environment Variable** 클릭:
-   - Key: `MCP_TRANSPORT`, Value: `streamable-http`
+1. 대시보드에서 **+ New** 버튼 클릭 → **Web Service** 선택
+   (바로 https://dashboard.render.com/web/new 로 가도 됩니다).
+2. 상단 탭 3개(**Git Provider** / **Public Git Repository** / **Existing
+   Image**) 중 **Public Git Repository**를 클릭합니다.
+3. 입력창에 `https://github.com/jin-1119/plato_mcp`를 붙여넣고
+   **Connect →** 클릭.
+   - 화면에 "It looks like you're using Docker, so we've autofilled some
+     fields"라는 안내가 뜨면서 아래 항목들이 자동으로 채워집니다.
+4. 자동으로 채워진 값들을 확인/수정합니다:
+   - **Source Code**: `jin-1119 / plato_mcp` (자동, 그대로 둠)
+   - **Name**: `plato_mcp`라고 자동으로 들어가는데, 원하면 `plato-mcp`처럼
+     바꿔도 됩니다 (서비스 이름일 뿐, 동작에는 영향 없음).
+   - **Language**: `Docker` (자동, 그대로 둠)
+   - **Branch**: `main` (자동, 그대로 둠)
+   - **Region**: 드롭다운을 열어 **`Singapore (Southeast Asia)`**로
+     바꿉니다 (기본값은 `Oregon (US West)`로 잡혀 있습니다).
+5. 아래로 스크롤하면 **Compute** 섹션에 요금제 목록이 나옵니다.
+   **⚠️ 기본으로 `$7 / month` 요금제가 선택되어 있습니다 — 반드시
+   맨 위의 `$0 / month` (Free) 라디오 버튼을 직접 클릭해서 바꿔주세요.**
+   (안 바꾸면 카드 등록을 요구하거나 결제가 발생할 수 있습니다.)
+6. 그 아래 **Environment Variables** 섹션에서 첫 번째 빈 칸에 입력합니다:
+   - 왼쪽(NAME_OF_VARIABLE) 칸: `MCP_TRANSPORT`
+   - 오른쪽(value) 칸: `streamable-http`
    - (`PORT`는 Render가 자동으로 넣어주므로 따로 설정할 필요 없습니다 —
      이 서버 코드가 `PORT` 환경변수를 이미 읽도록 되어 있습니다.)
-6. 맨 아래 **Deploy Web Service** 클릭.
-7. 몇 분 정도 빌드 로그가 흐르며 배포됩니다. 끝나면 화면 위쪽에 서비스 주소
+7. 맨 아래(화면에 항상 붙어있는 바) **Deploy web service** 버튼을 클릭하기
+   직전, 그 옆에 **`$0 / month · 0.1 CPU · 512 MB RAM`**이라고 나오는지
+   마지막으로 확인하세요 (Free 요금제가 제대로 선택됐다는 뜻입니다).
+   확인했으면 **Deploy web service** 클릭.
+8. 몇 분 정도 빌드 로그가 흐르며 배포됩니다. 끝나면 화면 위쪽에 서비스 주소
    (예: `https://plato-mcp.onrender.com`)가 보입니다.
    **이 주소를 복사해두세요 — 3단계에서 씁니다.**
 
