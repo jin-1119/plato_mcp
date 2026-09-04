@@ -5,6 +5,20 @@ Researched 2026-09-03 against current Smithery docs (smithery.ai/docs), the
 (v0.4.4). This resolves the open question in `config.py`'s docstring and in
 `PLAN.md` line 14.
 
+> **⚠️ Superseded (2026-09-04, issue #67/#68): Smithery's publish model
+> changed.** Everything below this notice describes the "custom container"
+> path (`runtime: "container"` in `smithery.yaml`, Smithery builds and hosts
+> your `Dockerfile` from a connected GitHub repo). That path no longer exists
+> in Smithery's UI or docs as of 2026-09-04 -- confirmed live by logging into
+> `smithery.ai/new` and reading the current `smithery.ai/docs/build/publish`
+> and `.../session-config` pages. **See the "Addendum (issue #67/#68):
+> bring-your-own-hosting model" section near the end of this file for the
+> current model.** The technical findings below about *this server's own
+> code* (transport, config-loading, middleware) are all still accurate and
+> still relevant -- only the "who builds/hosts the container" part changed.
+> `smithery.yaml` is kept as historical documentation of the config schema
+> fields, but nothing in the current publish flow reads it.
+
 ## Two deployment paths on Smithery
 
 Smithery supports two distinct ways to ship a server; they have very
@@ -381,6 +395,54 @@ string stripped), and status only.
 - `CORSMiddleware(allow_origins=["*"])` is intentional and now documented
   inline: safe because Smithery's gateway is the only thing that talks to
   this container directly; revisit if ever deployed standalone.
+
+## Addendum (issue #67/#68): bring-your-own-hosting model
+
+Discovered while starting #32 (public listing): the "custom container"
+deployment path documented above -- connect a GitHub repo, Smithery builds
+the `Dockerfile` and hosts the container -- **no longer exists**. Verified
+live on 2026-09-04:
+
+- Logged into `smithery.ai/new` (redirects to `smithery.ai/servers/new` once
+  authenticated). The form has exactly two fields: `Namespace / Server ID`
+  and **`MCP Server URL`** (placeholder `https://your-server.com/mcp`),
+  described as "The HTTP URL where your MCP server is accessible." There is
+  no GitHub-repo-connect option, no Dockerfile upload, no build step visible
+  anywhere in this flow.
+- `smithery.ai/docs/build/publish` (current content, fetched live) describes
+  exactly two publishing methods: **URL-Based Publishing** ("Bring your own
+  hosting -- Smithery Gateway proxies to your upstream server") and **Local
+  Bundle Publishing** (`.mcpb` bundle for stdio servers, downloaded and run
+  by the client locally). Neither is "Smithery builds/hosts your container."
+- The old source URL this document cited,
+  `smithery.ai/docs/build/deployments/custom-container`, now 404s. The docs
+  site's left nav no longer has a "Deployments" section at all -- just
+  "Publish" (Overview / Publish / Triggers).
+- `smithery.ai/docs/build/session-config` (still current) confirms the
+  config-delivery mechanics this server already relies on are unchanged:
+  "For URL-published servers, Smithery Gateway passes through all query
+  parameters and headers to your upstream server." This matches exactly what
+  `asgi.py`'s `QueryParamsToHeadersMiddleware` + `config.py`'s
+  `_load_from_headers` already implement -- **no code change needed** for
+  config delivery. The doc also documents `x-from`/`x-to` metadata that lets
+  a server declare that a given config field should be read from a *header*
+  rather than a query parameter -- see #70, which uses this to keep
+  `pnu_password` out of the request line/query string entirely in the new
+  hosting layer (the same class of leak already fixed once for this
+  project's own process in #34/#63, but this time at a layer outside this
+  server's control -- whatever host actually runs the container).
+
+**What this means practically:** to publish, someone must run this
+container somewhere with a public HTTPS URL themselves (Cloud Run, Railway,
+Render, Fly.io, etc. -- any host that accepts a Dockerfile and gives back a
+public URL works, since nothing here is Smithery-specific). That URL is then
+registered at `smithery.ai/new`. This project chose **Google Cloud Run**
+(#69) -- generous free tier for low personal traffic, scales to zero when
+idle, deploys the existing `Dockerfile` unmodified since `server.py` already
+reads the `PORT` env var Cloud Run injects automatically. See #69-#73 for
+the concrete deploy/publish/verify work, and
+`docs/smithery_publish_guide.md` (#73) for the non-technical step-by-step
+version of the same process.
 
 ## Sources
 
