@@ -1,90 +1,83 @@
-# Security
+# 보안(Security)
 
-This document describes what plato-mcp stores, for how long, and the known
-credential-exposure surfaces -- both fixed and still-open -- so you can decide
-whether to run it and how.
+이 문서는 plato-mcp가 무엇을, 얼마나 오래 저장하는지, 그리고 알려진 자격증명 노출
+지점 — 이미 고친 것과 아직 열려 있는 것 모두 — 을 설명합니다. 이 서버를 실행할지,
+어떻게 실행할지 판단하는 데 참고하세요.
 
-## What is stored, and where
+## 무엇이, 어디에 저장되는가
 
-| Data | Where it lives | Persisted to disk? | Lifetime |
+| 데이터 | 저장 위치 | 디스크에 영구 저장되는가? | 수명 |
 |---|---|---|---|
-| PLATO student ID / password (local/stdio run) | Process environment / `.env` file you provide | Only if you put it in your own `.env` -- the server itself never writes it anywhere | As long as your `.env` exists; the server only reads it |
-| PLATO student ID / password (remote/streamable-http run) | In-memory only, per HTTP request (headers/query params) | **No** | One request; not cached beyond the login session below |
-| Login session (`wstoken`, cookies, `sesskey`) | In-memory `SessionManager` cache (`auth.py`), keyed by an opaque per-connection session key | **No** | Until the process restarts, the session is evicted, or a fresh login is forced |
-| Course content, grades, messages, Q&A/notice posts fetched by tools | Nowhere -- passed straight through as tool output to whatever MCP client called the tool | No | Not stored by this server at all (see the caller's own retention: e.g. your AI assistant's conversation history) |
-| Downloaded course files (local/stdio) | Wherever you told `download_course_file`'s `save_path` to put it | Yes, by design -- that's the point of the local download path | Until you delete it yourself |
-| Downloaded course files (remote/streamable-http) | Returned as base64 content in the tool response (small files), or not stored at all (large files use a direct link the caller's own browser fetches) | No | N/A -- never touches this server's disk |
+| PLATO 학번/비밀번호 (로컬/stdio 실행) | 프로세스 환경 변수 / 사용자가 제공하는 `.env` 파일 | 사용자가 직접 `.env`에 넣은 경우에만 — 서버 자체는 어디에도 쓰지 않음 | `.env` 파일이 존재하는 동안 (서버는 읽기만 함) |
+| PLATO 학번/비밀번호 (원격/streamable-http 실행) | 요청별 메모리(헤더/쿼리 파라미터)에만 존재 | **아니오** | 요청 1건 동안만, 아래 로그인 세션보다 오래 캐시되지 않음 |
+| 로그인 세션 (`wstoken`, 쿠키, `sesskey`) | 메모리 내 `SessionManager` 캐시(`auth.py`), 커넥션별 불투명 세션 키로 관리 | **아니오** | 프로세스가 재시작되거나, 세션이 축출되거나, 강제 재로그인이 일어날 때까지 |
+| 도구가 가져온 강좌 콘텐츠, 성적, 메시지, Q&A/공지 게시글 | 저장하지 않음 — 이를 호출한 MCP 클라이언트에게 도구 출력으로 그대로 전달 | 아니오 | 이 서버는 전혀 저장하지 않음 (호출자 측 보관 정책은 별개 — 예: AI 어시스턴트의 대화 기록) |
+| 다운로드한 강좌 파일 (로컬/stdio) | `download_course_file`의 `save_path`로 지정한 위치 | 예, 의도된 동작 — 로컬 다운로드 경로의 목적 자체가 저장 | 사용자가 직접 삭제할 때까지 |
+| 다운로드한 강좌 파일 (원격/streamable-http) | 도구 응답에 base64로 포함(작은 파일) 또는 아예 저장되지 않음(큰 파일은 호출자의 브라우저가 직접 받는 링크 방식) | 아니오 | 해당 없음 — 이 서버의 디스크에는 전혀 닿지 않음 |
 
-**In short: this server has no database, no credential store, and writes
-nothing to disk on its own initiative.** The one place credentials land on
-disk is the `.env` file *you* create for local/stdio use -- that's your file,
-not something this server manages, and it should never be committed to
-version control (see `.gitignore`).
+**요약: 이 서버는 데이터베이스도, 자격증명 저장소도 없으며 스스로의 판단으로 디스크에
+아무것도 쓰지 않습니다.** 자격증명이 디스크에 남는 유일한 지점은 로컬/stdio 사용을
+위해 *사용자가 직접* 만드는 `.env` 파일입니다 — 이는 이 서버가 관리하는 파일이 아니라
+사용자의 파일이며, 버전 관리에 절대 커밋되어서는 안 됩니다(`.gitignore` 참고).
 
-## Known credential-exposure surfaces
+## 알려진 자격증명 노출 지점
 
-These are places a credential or access token *could* end up somewhere other
-than directly between you and PLATO -- either fixed already, or an inherent
-tradeoff of how PLATO's own API works.
+자격증명이나 액세스 토큰이 사용자와 PLATO 사이가 아닌 다른 곳에 남을 *수 있는* 지점들
+입니다 — 이미 고친 것과, PLATO 자체 API 동작 방식에서 비롯된 근본적인 트레이드오프로
+남아 있는 것으로 나뉩니다.
 
-### Fixed
+### 고친 것
 
-- **URL-embedded credentials in error messages** (issue #34): `requests`
-  embeds the full request URL -- including query-string credentials -- in
-  `HTTPError`/`RequestException` messages. Login and API calls were switched
-  from GET to POST so credentials never appear in a URL at all; the one
-  endpoint that structurally requires a token in the URL (file downloads,
-  see below) catches and sanitizes that specific failure mode instead. See
-  `docs/security_audit.md`.
-- **PLATO password logged via the container's own access log** (issue #63):
-  when deployed remotely, Smithery delivers your credentials as query
-  parameters on the request URL. The web server's default access-log format
-  would otherwise log that full URL -- password included -- to its own
-  stdout on every request. Replaced with a logging middleware that never
-  records the query string. See `docs/smithery_deployment_model.md`.
-- **Unenforced write-confirmation bypass** (issue #37): the "preview before
-  you act" pattern for `submit_assignment`/`post_qna_question` was originally
-  just a convention an LLM was asked to follow, not something the server
-  enforced -- a client or model that skipped the preview step could submit
-  or post immediately. Now enforced server-side (`PreviewTracker`): a
-  matching preview must exist, is single-use, and expires after 5 minutes.
-  See `docs/abuse_prevention_review.md`.
+- **에러 메시지에 URL로 노출되는 자격증명** (이슈 #34): `requests` 라이브러리는
+  `HTTPError`/`RequestException` 메시지에 쿼리 문자열의 자격증명을 포함한 전체 요청
+  URL을 그대로 담습니다. 로그인과 API 호출을 GET에서 POST로 바꿔 자격증명이 URL에
+  전혀 나타나지 않도록 했습니다. 구조적으로 URL에 토큰이 있어야만 하는 유일한
+  엔드포인트(파일 다운로드, 아래 참고)는 이 특정 실패 케이스만 잡아 값을 가려 처리
+  합니다. 자세한 내용은 `docs/security_audit.md`를 참고하세요.
+- **컨테이너 자체 접근 로그로 새어나가던 PLATO 비밀번호** (이슈 #63): 원격 배포 시
+  Smithery는 자격증명을 요청 URL의 쿼리 파라미터로 전달합니다. 웹서버의 기본 접근
+  로그 포맷은 비밀번호를 포함한 이 URL 전체를 그대로 자체 stdout에 매 요청마다 기록해
+  버립니다. 쿼리 문자열을 절대 기록하지 않는 로깅 미들웨어로 교체했습니다. 자세한
+  내용은 `docs/smithery_deployment_model.md`를 참고하세요.
+- **강제되지 않던 쓰기 확인(preview) 우회** (이슈 #37): `submit_assignment`/
+  `post_qna_question`의 "실행 전 미리보기" 패턴은 원래 LLM이 따르도록 요청받는
+  관례일 뿐 서버가 강제하는 것이 아니었습니다 — 미리보기 단계를 건너뛴 클라이언트나
+  모델이 즉시 제출·게시할 수 있었습니다. 이제 서버 측에서 강제됩니다
+  (`PreviewTracker`): 일치하는 미리보기가 반드시 존재해야 하고, 1회용이며, 5분 뒤
+  만료됩니다. 자세한 내용은 `docs/abuse_prevention_review.md`를 참고하세요.
 
-### Inherent, not a bug -- know before you rely on this
+### 근본적인 특성 — 버그가 아니라, 알고 써야 하는 부분
 
-- **The remote download-link fallback token is broadly scoped.** For a
-  course file too large to return inline (over `INLINE_BASE64_MAX_MB`),
-  `download_course_file` returns a direct PLATO URL with a `?token=...`
-  suffix instead of the file content. That token is a general-purpose Moodle
-  webservice credential -- confirmed live by calling an unrelated API
-  function (`core_webservice_get_site_info`) with it and getting your real
-  name, student ID, and full account access back. **Anyone who obtains that
-  URL (e.g. from a shared chat transcript) can use it against your account
-  broadly, not just to fetch that one file.** This is a property of PLATO's
-  own Moodle webservice token model, not something this server can narrow
-  down further without PLATO-side changes. Common course files (observed
-  100KB-1.5MB) stay under the inline-delivery threshold and never expose
-  this token at all; only larger files hit this path.
-- **Rate limiting protects PLATO, not your credentials.** The outbound
-  request limiter (`security.py`) exists to keep this server (especially a
-  publicly-shared deployment) from hammering PLATO's servers, not as a
-  security boundary around your account.
+- **원격 다운로드 링크의 대체 토큰은 넓은 권한을 가집니다.** `INLINE_BASE64_MAX_MB`를
+  초과해 인라인으로 반환할 수 없는 큰 강좌 파일의 경우, `download_course_file`은
+  파일 내용 대신 `?token=...`이 붙은 PLATO 직접 URL을 반환합니다. 이 토큰은 범용
+  Moodle webservice 자격증명입니다 — 이와 무관한 API 함수
+  (`core_webservice_get_site_info`)를 이 토큰으로 실제 호출해 본인 실명, 학번, 계정
+  전체 접근 권한이 그대로 돌아오는 것을 라이브로 확인했습니다. **이 URL을 얻은
+  사람(예: 공유된 대화 기록을 통해)은 파일 하나가 아니라 계정 전체에 대해 이 토큰을
+  사용할 수 있습니다.** 이는 이 서버가 더 좁힐 수 있는 문제가 아니라 PLATO 자체의
+  Moodle webservice 토큰 모델에서 비롯된 특성입니다. 일반적인 강좌 파일(관측된 범위
+  100KB~1.5MB)은 인라인 전송 임계값 이하라 이 경로를 전혀 타지 않으며, 더 큰 파일만
+  이 경로를 거칩니다.
+- **속도 제한(rate limiting)은 사용자의 자격증명이 아니라 PLATO를 보호하기 위한
+  것입니다.** 아웃바운드 요청 제한기(`security.py`)는 이 서버(특히 공개적으로 공유된
+  배포본)가 PLATO 서버를 과도하게 두드리지 않도록 하기 위한 것이며, 계정을 보호하는
+  보안 경계가 아닙니다.
 
-## What this project has not done
+## 아직 하지 않은 것
 
-- **No independent third-party security audit.** Everything above was found
-  through this project's own review passes (issues #34-37, #56, #63), not an
-  external assessment. Treat this as "known issues found and fixed by the
-  people who wrote it," not "certified secure."
-- **`reply_to_qna` is unimplemented**, and `post_qna_question`'s real
-  (non-preview) POST path has never actually been exercised against a live
-  PLATO account -- both are documented gaps, not silent ones.
-- **No automated CI security scanning** (dependency vulnerability scanning,
-  SAST) is currently configured for this repository.
+- **제3자에 의한 독립적인 보안 감사가 없습니다.** 위 내용은 모두 이 프로젝트 자체의
+  검토 과정(이슈 #34-37, #56, #63)에서 발견된 것이며, 외부 평가가 아닙니다. "직접
+  만든 사람들이 발견해서 고친 알려진 이슈들"로 받아들이되, "검증된 안전함"으로
+  받아들이지는 마세요.
+- **`reply_to_qna`는 미구현 상태**이며, `post_qna_question`의 실제(미리보기가 아닌)
+  POST 경로는 실제 PLATO 계정을 대상으로 아직 한 번도 실행해 본 적이 없습니다 — 둘 다
+  숨겨진 게 아니라 명시적으로 문서화된 공백입니다.
+- **의존성 취약점 스캔, SAST 등 자동화된 CI 보안 스캐닝이 현재 이 저장소에 설정되어
+  있지 않습니다.**
 
-## Reporting a concern
+## 우려 사항 제보
 
-This is an independent, community project with no formal security team.
-Open a GitHub issue (avoid including real credentials, tokens, or other
-students' personal information in the issue itself) or contact the
-maintainer directly for anything sensitive.
+이 프로젝트는 공식 보안팀이 없는 독립 커뮤니티 프로젝트입니다. GitHub 이슈를
+등록하거나(이슈 본문에 실제 자격증명, 토큰, 다른 학생의 개인정보를 포함하지 마세요)
+민감한 내용은 메인테이너에게 직접 연락해 주세요.
