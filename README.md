@@ -19,10 +19,6 @@
 > 흘러 들어간다는 차이가 있습니다. 시작하기 전에 아래 [면책조항](#면책조항)과
 > [개인정보 안내](#개인정보-안내)를 반드시 읽어 주세요.
 
-```bash
-pip install -e ".[dev]"
-pytest
-```
 
 Smithery를 통한 배포/설치 방법은 [`smithery.yaml`](./smithery.yaml)을,
 자격증명이 어떻게 다뤄지는지는 [`SECURITY.md`](./SECURITY.md)를 참고하세요.
